@@ -2,13 +2,48 @@ interface Props {
   epsilon: number; // deformación unitaria actual (positivo = acortamiento)
   amplificacion: number;
   estado: 'elastico' | 'plastico' | 'destruida';
+  acortamientoMm: number;
+  progreso: number; // epsilon / límite del ensayo, en [0, 1] — para la aguja del comparador
 }
 
 const ALTO_BASE = 140;
 const CENTRO_Y = 185;
 const ANCHO_PROBETA = 64;
 
-export function CompressionSVG({ epsilon, amplificacion, estado }: Props) {
+/** Comparador de carátula: aguja que barre de -110° a +110° según el progreso del ensayo. */
+function ComparadorDial({ cx, cy, progreso, valorMm }: { cx: number; cy: number; progreso: number; valorMm: number }) {
+  const r = 22;
+  const anguloDeg = -110 + Math.min(Math.max(progreso, 0), 1) * 220;
+  const anguloRad = (anguloDeg * Math.PI) / 180;
+  const agujaX = cx + (r - 4) * Math.cos(anguloRad);
+  const agujaY = cy + (r - 4) * Math.sin(anguloRad);
+  const marcas = [0, 0.25, 0.5, 0.75, 1].map((f) => {
+    const a = (((-110 + f * 220) * Math.PI) / 180);
+    return {
+      x1: cx + (r - 5) * Math.cos(a),
+      y1: cy + (r - 5) * Math.sin(a),
+      x2: cx + r * Math.cos(a),
+      y2: cy + r * Math.sin(a),
+    };
+  });
+
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={r + 3} fill="#fff" stroke="#5b6b78" strokeWidth={1.5} />
+      {marcas.map((m, i) => (
+        <line key={i} x1={m.x1} y1={m.y1} x2={m.x2} y2={m.y2} stroke="#8a97a3" strokeWidth={1} />
+      ))}
+      <line x1={cx} y1={cy} x2={agujaX} y2={agujaY} stroke="#ab2d2d" strokeWidth={2} strokeLinecap="round" />
+      <circle cx={cx} cy={cy} r={2.2} fill="#123f61" />
+      <text x={cx} y={cy + r + 16} textAnchor="middle" fontSize="11" fontWeight="bold" fill="#123f61">
+        {valorMm.toFixed(4)} mm
+      </text>
+      <text x={cx} y={cy + r + 28} textAnchor="middle" fontSize="8" fill="#5b6b78">Comparador axial</text>
+    </g>
+  );
+}
+
+export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm, progreso }: Props) {
   const acortamiento = Math.min(epsilon * amplificacion, 0.85) * ALTO_BASE;
   const altoProbeta = Math.max(ALTO_BASE - acortamiento, 10);
   const topY = CENTRO_Y - altoProbeta / 2;
@@ -51,10 +86,8 @@ export function CompressionSVG({ epsilon, amplificacion, estado }: Props) {
         opacity={0.88}
       />
 
-      {/* Comparador axial (esquemático) */}
-      <circle cx={95} cy={CENTRO_Y} r={14} fill="#fff" stroke="#5b6b78" strokeWidth={1.5} />
-      <line x1={95} y1={CENTRO_Y} x2={95 + 9 * Math.cos((epsilon * 400 * Math.PI) / 180)} y2={CENTRO_Y - 9 * Math.sin((epsilon * 400 * Math.PI) / 180)} stroke="#ab2d2d" strokeWidth={1.5} />
-      <text x={95} y={CENTRO_Y + 28} textAnchor="middle" fontSize="8" fill="#5b6b78">Comparador</text>
+      {/* Comparador axial */}
+      <ComparadorDial cx={88} cy={CENTRO_Y - 10} progreso={progreso} valorMm={acortamientoMm} />
 
       <text x={150} y={370} textAnchor="middle" fontSize="10" fill="#b3541e" fontWeight="bold">
         Escala gráfica de deformación: ×{amplificacion} (amplificada para visualización)

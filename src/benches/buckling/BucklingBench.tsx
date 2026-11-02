@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { EtapasStepper } from '../../components/EtapasStepper';
 import { MaterialSelector } from '../../components/MaterialSelector';
 import { TablaValidacion, FilaValidacion } from '../../components/FilaValidacion';
+import { LecturasPanel } from '../../components/LecturasPanel';
 import { useSesionEnsayo } from '../../trial/useSesionEnsayo';
 import { exportarMedicionesCSV, exportarSesionJSON } from '../../trial/exportar';
 import { obtenerMaterial } from '../../engine/materials';
@@ -74,6 +75,7 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
 
   const Pmax = Math.max(Pcr * 0.95, 1);
   const PSeguro = Math.min(pAplicada, Pmax);
+  const pasoCarga = Pmax / 500;
   const deflexion = delta0 > 0 ? deflexionConImperfeccion(PSeguro, Pcr, delta0) : 0;
   const cercaDeCritica = PSeguro / Pcr > 0.85;
   const celdaCarga = elegirCeldaCarga(Pcr);
@@ -159,10 +161,22 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
           <div className="zona-etiqueta">Zona C · Instrumentación y control</div>
           <div className="campo">
             <label>Carga axial aplicada P = {(PSeguro / 1000).toFixed(3)} kN (máx. de ensayo: {(Pmax / 1000).toFixed(3)} kN = 0.95·Pcr)</label>
-            <input type="range" min={0} max={Pmax} step={Pmax / 500} value={pAplicada} onChange={(e) => setPAplicada(Number(e.target.value))} />
+            <div className="control-paso">
+              <button className="boton-paso" onClick={() => setPAplicada((p) => Math.max(p - pasoCarga, 0))} disabled={pAplicada <= 0} aria-label="Disminuir carga">−</button>
+              <input type="range" min={0} max={Pmax} step={pasoCarga} value={pAplicada} onChange={(e) => setPAplicada(Number(e.target.value))} />
+              <button className="boton-paso" onClick={() => setPAplicada((p) => Math.min(p + pasoCarga, Pmax))} disabled={pAplicada >= Pmax} aria-label="Aumentar carga">+</button>
+            </div>
+            <p className="nota">Cada clic en − / + aplica un paso fino de ΔP = {(pasoCarga / 1000).toFixed(4)} kN.</p>
           </div>
-          <p className="nota">Deflexión lateral instantánea en el punto medio: {deflexion.toFixed(4)} mm (δ₀ = {delta0} mm)</p>
-          <p className="nota">Factor de seguridad instantáneo: {PSeguro > 0 ? factorSeguridad(Pcr, PSeguro).toFixed(2) : '—'}</p>
+
+          <p className="nota">Lecturas instantáneas:</p>
+          <LecturasPanel
+            lecturas={[
+              { etiqueta: 'Deflexión lateral', valor: deflexion.toFixed(4), unidad: 'mm' },
+              { etiqueta: 'Factor de seguridad', valor: PSeguro > 0 ? factorSeguridad(Pcr, PSeguro).toFixed(2) : '—' },
+            ]}
+          />
+          <p className="nota">Imperfección inicial de referencia: δ₀ = {delta0} mm</p>
           <button className="primario" onClick={registrarPunto}>Registrar punto</button>
           <hr className="separador" />
           <p className="nota">El modelo de amplificación elástica solo es válido para P &lt; Pcr. No existe aquí una trayectoria post-pandeo determinada: el ensayo se limita a 0.95·Pcr.</p>

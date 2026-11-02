@@ -135,6 +135,36 @@ select, input[type="number"], input[type="text"], textarea {
 .fila { display: flex; gap: 8px; align-items: center; }
 .fila > * { flex: 1; }
 
+.control-paso { display: flex; gap: 6px; align-items: center; }
+.control-paso input[type="range"] { flex: 1; }
+.boton-paso {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 999px;
+}
+
+.lecturas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+.lectura-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  text-align: center;
+}
+.lectura-card .lectura-etiqueta { font-size: 10.5px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 2px; }
+.lectura-card .lectura-valor { font-size: 17px; font-weight: 700; color: var(--color-primary-dark); font-variant-numeric: tabular-nums; }
+.lectura-card .lectura-unidad { font-size: 11px; color: var(--color-text-muted); margin-left: 3px; }
+
 .stepper { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
 .stepper button {
   font-size: 11.5px;

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { EtapasStepper } from '../../components/EtapasStepper';
 import { MaterialSelector } from '../../components/MaterialSelector';
 import { TablaValidacion, FilaValidacion } from '../../components/FilaValidacion';
+import { LecturasPanel } from '../../components/LecturasPanel';
 import { useSesionEnsayo } from '../../trial/useSesionEnsayo';
 import { exportarMedicionesCSV, exportarSesionJSON } from '../../trial/exportar';
 import { obtenerMaterial } from '../../engine/materials';
@@ -80,6 +81,8 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
   const sigmaActual = esfuerzoEnDeformacion(material, epsilonObjetivo) ?? 0;
   const PActual = sigmaActual * A;
   const acortamientoActual = epsilonObjetivo * L;
+  const pasoSlider = limiteEps / 500;
+  const progresoEnsayo = limiteEps > 0 ? epsilonObjetivo / limiteEps : 0;
 
   const sigmaMaxPosible = esfuerzoEnDeformacion(material, limiteEps) ?? material.propiedades.sigmaU_MPa ?? material.propiedades.sigmaY_MPa ?? (material.propiedades.E_MPa ?? 200000) * limiteEps;
   const celdaCarga = elegirCeldaCarga(sigmaMaxPosible * A);
@@ -92,9 +95,14 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
 
   function manejarSlider(v: number) {
     if (sesion.probetaDestruida) return;
-    setEpsilonObjetivo(v);
-    setEpsilonMaxAlcanzado((prev) => Math.max(prev, v));
+    const vAcotado = Math.min(Math.max(v, 0), limiteEps);
+    setEpsilonObjetivo(vAcotado);
+    setEpsilonMaxAlcanzado((prev) => Math.max(prev, vAcotado));
     setDeformacionPermanenteUltima(null);
+  }
+
+  function ajustarPaso(signo: 1 | -1) {
+    manejarSlider(epsilonObjetivo + signo * pasoSlider);
   }
 
   function manejarDescargar() {
@@ -205,7 +213,13 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
         {/* Zona B: representación del banco */}
         <div className="zona-b panel">
           <div className="zona-etiqueta">Zona B · Banco de ensayo</div>
-          <CompressionSVG epsilon={epsilonObjetivo} amplificacion={AMPLIFICACION_VISUAL} estado={estadoSvg} />
+          <CompressionSVG
+            epsilon={epsilonObjetivo}
+            amplificacion={AMPLIFICACION_VISUAL}
+            estado={estadoSvg}
+            acortamientoMm={acortamientoActual}
+            progreso={progresoEnsayo}
+          />
         </div>
 
         {/* Zona C: instrumentación y control */}
@@ -218,17 +232,30 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
           </div>
           <div className="campo">
             <label>Deformación controlada ε = {epsilonObjetivo.toFixed(5)} (máx. admitido en este ensayo: {limiteEps.toFixed(4)})</label>
-            <input
-              type="range"
-              min={0}
-              max={limiteEps}
-              step={limiteEps / 500}
-              value={epsilonObjetivo}
-              onChange={(e) => manejarSlider(Number(e.target.value))}
-              disabled={sesion.probetaDestruida}
-            />
+            <div className="control-paso">
+              <button className="boton-paso" onClick={() => ajustarPaso(-1)} disabled={sesion.probetaDestruida || epsilonObjetivo <= 0} aria-label="Disminuir deformación">−</button>
+              <input
+                type="range"
+                min={0}
+                max={limiteEps}
+                step={pasoSlider}
+                value={epsilonObjetivo}
+                onChange={(e) => manejarSlider(Number(e.target.value))}
+                disabled={sesion.probetaDestruida}
+              />
+              <button className="boton-paso" onClick={() => ajustarPaso(1)} disabled={sesion.probetaDestruida || epsilonObjetivo >= limiteEps} aria-label="Aumentar deformación">+</button>
+            </div>
+            <p className="nota">Cada clic en − / + aplica un paso fino de Δε = {pasoSlider.toFixed(6)}, para ajustar la carga con precisión.</p>
           </div>
-          <p className="nota">Fuerza instantánea (valor verdadero, antes de instrumentar): {PActual.toFixed(0)} N · σ = {sigmaActual.toFixed(2)} MPa · acortamiento = {acortamientoActual.toFixed(4)} mm</p>
+
+          <p className="nota">Lecturas instantáneas (valor verdadero, antes de instrumentar):</p>
+          <LecturasPanel
+            lecturas={[
+              { etiqueta: 'Fuerza', valor: PActual.toFixed(0), unidad: 'N' },
+              { etiqueta: 'Esfuerzo σ', valor: sigmaActual.toFixed(2), unidad: 'MPa' },
+              { etiqueta: 'Acortamiento', valor: acortamientoActual.toFixed(4), unidad: 'mm' },
+            ]}
+          />
           <div className="fila campo">
             <button className="primario" onClick={registrarPunto} disabled={sesion.probetaDestruida}>Registrar punto</button>
             <button onClick={manejarDescargar} disabled={epsilonObjetivo <= 0 || sesion.probetaDestruida}>Descargar</button>
