@@ -92,6 +92,13 @@ npm run build       # compila TypeScript y genera dist/ para producción
 npm run preview     # sirve dist/ localmente
 ```
 
+## Publicación en GitHub Pages
+
+El flujo `.github/workflows/deploy.yml` se ejecuta con cada cambio en `main`: instala
+dependencias, corre las pruebas, compila con `BASE_PATH=/<repositorio>/` y publica `dist/` en
+`https://<usuario>.github.io/<repositorio>/`. Hay que activarlo una vez en el repositorio:
+**Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
 ## Pruebas de validación numérica
 
 `npm test` ejecuta, entre otras, las pruebas obligatorias con resultados conocidos:
