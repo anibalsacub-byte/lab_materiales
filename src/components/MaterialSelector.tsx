@@ -33,6 +33,13 @@ export function FichaMaterial({ material }: { material: Material }) {
           {filaPropiedad('Deformación a fractura εF', material.propiedades.epsilonF, '')}
         </tbody>
       </table>
+      {material.modelo === 'elastico_plastico_bilineal' && (
+        <p className="nota">
+          {material.mesetaFluencia
+            ? 'Presenta meseta de fluencia marcada (fenómeno de Lüders), típica de aceros al carbono/bajo aleados.'
+            : 'Fluye de forma continua, sin meseta marcada (sin punto de fluencia definido a simple vista).'}
+        </p>
+      )}
       <p className="nota">Fuente: {material.fuente}</p>
       {material.notas && <p className="nota">{material.notas}</p>}
     </div>

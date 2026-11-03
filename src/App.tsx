@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { TractionBench } from './benches/traction/TractionBench';
 import { CompressionBench } from './benches/compression/CompressionBench';
+import { BendingBench } from './benches/bending/BendingBench';
 import { TorsionBench } from './benches/torsion/TorsionBench';
 import { BucklingBench } from './benches/buckling/BucklingBench';
 import { SectionsStation } from './stations/sections/SectionsStation';
@@ -29,7 +30,7 @@ interface ItemCatalogo {
 const BANCOS: ItemCatalogo[] = [
   { vista: 'banco-traccion', nombre: 'Banco 1 — Tracción', descripcion: 'Ensayo de tracción hasta la fractura: módulo elástico, fluencia y resistencia última.', disponible: true },
   { vista: 'banco-compresion', nombre: 'Banco 2 — Compresión', descripcion: 'Compresión axial, módulo elástico y Poisson.', disponible: true },
-  { vista: 'banco-flexion', nombre: 'Banco 3 — Flexión', descripcion: 'Vigas, diagramas V-M y deflexión. Próxima etapa.', disponible: false },
+  { vista: 'banco-flexion', nombre: 'Banco 3 — Flexión', descripcion: 'Vigas apoyadas o en voladizo: reacciones, diagramas V-M y deflexión.', disponible: true },
   { vista: 'banco-cortante', nombre: 'Banco 4 — Cortante', descripcion: 'Cortante simple y doble. Próxima etapa.', disponible: false },
   { vista: 'banco-torsion', nombre: 'Banco 5 — Torsión', descripcion: 'Torsión de ejes circulares: ángulo de giro y esfuerzo cortante.', disponible: true },
   { vista: 'banco-pandeo', nombre: 'Banco 6 — Pandeo de columnas', descripcion: 'Carga crítica de Euler, esbeltez y factor de seguridad.', disponible: true },
@@ -61,6 +62,7 @@ export default function App() {
 
   if (vista === 'banco-traccion') return <div className="app-shell"><TractionBench onVolver={volver} /></div>;
   if (vista === 'banco-compresion') return <div className="app-shell"><CompressionBench onVolver={volver} /></div>;
+  if (vista === 'banco-flexion') return <div className="app-shell"><BendingBench onVolver={volver} /></div>;
   if (vista === 'banco-torsion') return <div className="app-shell"><TorsionBench onVolver={volver} /></div>;
   if (vista === 'banco-pandeo') return <div className="app-shell"><BucklingBench onVolver={volver} /></div>;
   if (vista === 'estacion-secciones') return <div className="app-shell"><SectionsStation onVolver={volver} /></div>;

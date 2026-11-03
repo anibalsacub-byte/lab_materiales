@@ -28,6 +28,7 @@ export const MATERIALES: Material[] = [
     categoria: 'acero_carbono',
     condicion: 'laminado en caliente',
     modelo: 'elastico_plastico_bilineal',
+    mesetaFluencia: true,
     propiedades: { densidad_kg_m3: 7850, E_MPa: 200000, nu: 0.26, sigmaY_MPa: 250, sigmaU_MPa: 400, epsilonF: 0.20 },
     fuente: FUENTE_METALES,
   },
@@ -37,6 +38,7 @@ export const MATERIALES: Material[] = [
     categoria: 'acero_carbono',
     condicion: 'estirado en frío',
     modelo: 'elastico_plastico_bilineal',
+    mesetaFluencia: true,
     propiedades: { densidad_kg_m3: 7870, E_MPa: 200000, nu: 0.29, sigmaY_MPa: 370, sigmaU_MPa: 440, epsilonF: 0.15 },
     fuente: FUENTE_METALES,
   },
@@ -46,6 +48,7 @@ export const MATERIALES: Material[] = [
     categoria: 'acero_carbono',
     condicion: 'laminado en caliente',
     modelo: 'elastico_plastico_bilineal',
+    mesetaFluencia: true,
     propiedades: { densidad_kg_m3: 7850, E_MPa: 200000, nu: 0.29, sigmaY_MPa: 310, sigmaU_MPa: 565, epsilonF: 0.12 },
     fuente: FUENTE_METALES,
   },
@@ -56,6 +59,7 @@ export const MATERIALES: Material[] = [
     categoria: 'acero_aleado',
     condicion: 'normalizado',
     modelo: 'elastico_plastico_bilineal',
+    mesetaFluencia: true,
     propiedades: { densidad_kg_m3: 7850, E_MPa: 205000, nu: 0.29, sigmaY_MPa: 655, sigmaU_MPa: 1020, epsilonF: 0.08 },
     fuente: FUENTE_METALES,
   },
@@ -67,7 +71,8 @@ export const MATERIALES: Material[] = [
     modelo: 'elastico_plastico_bilineal',
     propiedades: { densidad_kg_m3: 7850, E_MPa: 205000, nu: 0.29, sigmaY_MPa: 950, sigmaU_MPa: 1080, epsilonF: 0.06 },
     fuente: FUENTE_METALES,
-    notas: 'Misma composición que la condición normalizada; el tratamiento térmico cambia resistencia y ductilidad.',
+    notas:
+      'Misma composición que la condición normalizada; el tratamiento térmico cambia resistencia y ductilidad. A diferencia de esa condición, el temple y revenido produce fluencia continua, sin meseta marcada.',
   },
   // ---- Aceros inoxidables ----
   {

@@ -7,6 +7,7 @@ import {
   esfuerzoEnDeformacion,
   deformacionDesdeEsfuerzo,
   deformacionPermanenteTrasDescarga,
+  parametrosCurvaBilineal,
 } from '../mechanics/axial';
 import { obtenerMaterial } from '../materials';
 
@@ -55,12 +56,43 @@ describe('Modelo constitutivo por material', () => {
     expect(esfuerzoEnDeformacion(a36, eps)).toBeCloseTo(200000 * eps, 6);
   });
 
-  it('acero A36: más allá de εY el esfuerzo es menor que si siguiera lineal (endurecimiento)', () => {
+  it('acero A36: en la meseta de fluencia el esfuerzo es constante en σY', () => {
     const a36 = obtenerMaterial('astm-a36')!;
-    const epsY = a36.propiedades.sigmaY_MPa! / a36.propiedades.E_MPa!;
-    const sigma = esfuerzoEnDeformacion(a36, epsY * 2)!;
-    expect(sigma).toBeLessThan(200000 * epsY * 2);
-    expect(sigma).toBeGreaterThan(a36.propiedades.sigmaY_MPa!);
+    const p = parametrosCurvaBilineal(a36)!;
+    const puntoMedio = (p.epsY + p.epsPlateauFin) / 2;
+    expect(esfuerzoEnDeformacion(a36, puntoMedio)).toBeCloseTo(p.sigmaY, 6);
+  });
+
+  it('acero A36: pasada la meseta, el endurecimiento es menor que si siguiera lineal desde el origen', () => {
+    const a36 = obtenerMaterial('astm-a36')!;
+    const p = parametrosCurvaBilineal(a36)!;
+    const puntoEndurecimiento = (p.epsPlateauFin + p.epsUTS) / 2;
+    const sigma = esfuerzoEnDeformacion(a36, puntoEndurecimiento)!;
+    expect(sigma).toBeLessThan(200000 * puntoEndurecimiento);
+    expect(sigma).toBeGreaterThan(p.sigmaY);
+    expect(sigma).toBeLessThanOrEqual(p.sigmaU);
+  });
+
+  it('acero A36: en el pico (εUTS) el esfuerzo es σU', () => {
+    const a36 = obtenerMaterial('astm-a36')!;
+    const p = parametrosCurvaBilineal(a36)!;
+    expect(esfuerzoEnDeformacion(a36, p.epsUTS)).toBeCloseTo(p.sigmaU, 6);
+  });
+
+  it('acero A36: pasado εUTS, el esfuerzo ingenieril cae (ablandamiento por estricción) hasta εF', () => {
+    const a36 = obtenerMaterial('astm-a36')!;
+    const p = parametrosCurvaBilineal(a36)!;
+    const puntoAblandamiento = (p.epsUTS + p.epsF) / 2;
+    const sigma = esfuerzoEnDeformacion(a36, puntoAblandamiento)!;
+    expect(sigma).toBeLessThan(p.sigmaU);
+    expect(sigma).toBeGreaterThan(p.sigmaFractura);
+    expect(esfuerzoEnDeformacion(a36, p.epsF)).toBeCloseTo(p.sigmaFractura, 6);
+  });
+
+  it('un material sin meseta de fluencia (p. ej. aluminio) endurece inmediatamente tras εY', () => {
+    const al = obtenerMaterial('al-6061-t6')!;
+    const p = parametrosCurvaBilineal(al)!;
+    expect(p.epsPlateauFin).toBeCloseTo(p.epsY, 9); // sin meseta: el endurecimiento empieza en εY
   });
 
   it('fundición gris (frágil): no hay fluencia, falla devuelve undefined más allá de εF', () => {

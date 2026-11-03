@@ -13,6 +13,7 @@ import {
   deformacionPermanenteTrasDescarga,
   deformacionTransversal,
   generarCurvaEsfuerzoDeformacion,
+  parametrosCurvaBilineal,
 } from '../../engine/mechanics/axial';
 import { calcularSeccion } from '../../engine/sections';
 import { medir, INSTRUMENTOS, elegirCeldaCarga } from '../../engine/measurement';
@@ -85,7 +86,21 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
   const maxFuerza = sigmaMaxPosible * A;
   const pasoFuerza = maxFuerza / 500;
 
-  const curvaReferencia = useMemo(() => generarCurvaEsfuerzoDeformacion(material, 60, limiteEps).map((p) => ({ x: p.epsilon, y: p.sigma_MPa })), [material, limiteEps]);
+  const parametrosCurva = useMemo(() => parametrosCurvaBilineal(material), [material]);
+
+  const curvaReferencia = useMemo(() => {
+    const base = generarCurvaEsfuerzoDeformacion(material, 150, limiteEps);
+    if (!material.mesetaFluencia || !parametrosCurva) return base.map((p) => ({ x: p.epsilon, y: p.sigma_MPa }));
+    // Ondulación cosmética de la meseta (efecto Lüders), solo visual: no altera el motor físico.
+    return base.map((p) => {
+      let y = p.sigma_MPa;
+      if (p.epsilon >= parametrosCurva.epsY && p.epsilon <= parametrosCurva.epsPlateauFin) {
+        const t = (p.epsilon - parametrosCurva.epsY) / (parametrosCurva.epsPlateauFin - parametrosCurva.epsY || 1);
+        y += Math.sin(t * Math.PI * 6) * parametrosCurva.sigmaY * 0.012;
+      }
+      return { x: p.epsilon, y };
+    });
+  }, [material, limiteEps, parametrosCurva]);
   const puntosGraficados = epsilonesRegistrados.map((eps) => ({ x: eps, y: esfuerzoEnDeformacion(material, eps) ?? 0 }));
 
   const estadoSvg: 'elastico' | 'plastico' | 'destruida' = sesion.probetaDestruida
@@ -94,6 +109,16 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
       ? 'plastico'
       : 'elastico';
 
+  /** La probeta se desestabiliza y fractura: el esfuerzo cae a cero porque ya no hay sección intacta. */
+  function dispararFractura() {
+    const epsF = material.propiedades.epsilonF;
+    if (epsF === undefined) return;
+    const epsFractura = epsF * 1.02;
+    setEpsilonObjetivo(epsFractura);
+    setEpsilonMaxAlcanzado(epsFractura);
+    marcarProbetaDestruida();
+  }
+
   function manejarSlider(v: number) {
     if (sesion.probetaDestruida) return;
     const vAcotado = Math.min(Math.max(v, 0), limiteEps);
@@ -101,10 +126,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
     // Llevar el control hasta el tope del ensayo es, físicamente, llevar la probeta hasta su
     // deformación de fractura: en vez de quedarse "congelada" justo antes, rompe de verdad.
     if (epsF !== undefined && vAcotado >= limiteEps * 0.999) {
-      const epsFractura = epsF * 1.02;
-      setEpsilonObjetivo(epsFractura);
-      setEpsilonMaxAlcanzado(epsFractura);
-      marcarProbetaDestruida();
+      dispararFractura();
       return;
     }
     setEpsilonObjetivo(vAcotado);
@@ -118,6 +140,12 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
 
   function manejarSliderFuerza(P: number) {
     const sigmaObjetivo = P / A;
+    // En control por fuerza, llegar al esfuerzo último es inestable: la máquina no puede sostener
+    // más carga ahí (empieza la estricción) y en la práctica la probeta rompe casi de inmediato.
+    if (sigmaMaxPosible > 0 && sigmaObjetivo >= sigmaMaxPosible * 0.999) {
+      dispararFractura();
+      return;
+    }
     const eps = deformacionDesdeEsfuerzo(material, sigmaObjetivo);
     manejarSlider(eps ?? limiteEps);
   }
@@ -130,11 +158,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
   }
 
   function manejarFalla() {
-    const epsF = material.propiedades.epsilonF;
-    if (epsF === undefined) return;
-    setEpsilonObjetivo(epsF * 1.02);
-    setEpsilonMaxAlcanzado(epsF * 1.02);
-    marcarProbetaDestruida();
+    dispararFractura();
   }
 
   function manejarNuevaProbeta() {
@@ -230,6 +254,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
             estado={estadoSvg}
             alargamientoMm={alargamientoActual}
             progreso={progresoEnsayo}
+            diametroMm={tipoSeccion === 'circular' ? d : undefined}
           />
         </div>
 

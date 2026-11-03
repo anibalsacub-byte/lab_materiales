@@ -43,6 +43,15 @@ export interface Material {
   condicion?: string; // p. ej. "laminado en caliente", "T6", "recocido"
   modelo: ModeloConstitutivo;
   esOrtotropico?: boolean;
+  /**
+   * Solo aplica a `elastico_plastico_bilineal`: indica si el material exhibe un punto de
+   * fluencia marcado con meseta (fenómeno de Lüders), típico de aceros al carbono/bajo aleados
+   * en estado recocido o normalizado. La mayoría de metales dúctiles (aluminios, inoxidables
+   * austeníticos, cobre y sus aleaciones, aceros muy trabajados en frío o templados) fluyen de
+   * forma continua, sin meseta — por eso esto es una propiedad por material, no un comportamiento
+   * universal.
+   */
+  mesetaFluencia?: boolean;
   propiedades: PropiedadesMaterial;
   fuente: string;
   notas?: string;

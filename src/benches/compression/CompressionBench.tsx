@@ -226,6 +226,7 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
             estado={estadoSvg}
             acortamientoMm={acortamientoActual}
             progreso={progresoEnsayo}
+            diametroMm={tipoSeccion === 'circular' ? d : undefined}
           />
         </div>
 

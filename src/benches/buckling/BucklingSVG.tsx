@@ -85,10 +85,18 @@ export function BucklingSVG({ deflexion_mm, progresoComparador, amplificacion, c
 
       {/* Flecha de carga axial */}
       <polygon points={`${xCentro},${topY - 30} ${xCentro - 8},${topY - 16} ${xCentro + 8},${topY - 16}`} fill="#b3541e" />
-      <text x={xCentro + 14} y={topY - 18} fontSize="10" fill="#b3541e" fontWeight="bold">P</text>
+      <text x={xCentro + 16} y={topY - 20} fontSize="15" fill="#b3541e" fontWeight="bold">P</text>
 
       {/* Columna deformada */}
       <polyline points={puntos.join(' ')} fill="none" stroke={`url(#${colorId})`} strokeWidth={7} strokeLinecap="round" filter="url(#sombraColumna)" />
+
+      {/* Cota L: longitud de la columna */}
+      <g stroke="#5b6b78" strokeWidth={1}>
+        <line x1={290} y1={topY} x2={290} y2={bottomY} />
+        <line x1={286} y1={topY} x2={294} y2={topY} />
+        <line x1={286} y1={bottomY} x2={294} y2={bottomY} />
+      </g>
+      <text x={298} y={topY + alto / 2} fontSize="11" fill="#5b6b78" fontStyle="italic">L</text>
 
       {/* Comparador lateral, montado fuera de la columna con un brazo guía */}
       <line x1={32} y1={topY + alto / 2} x2={80} y2={topY + alto / 2} stroke="#8a97a3" strokeWidth={1.5} strokeDasharray="3 2" />

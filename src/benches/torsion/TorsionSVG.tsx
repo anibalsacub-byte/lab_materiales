@@ -60,13 +60,21 @@ export function TorsionSVG({ phiRad, phiDeg, amplificacion, progreso, cercaDelLi
         <line key={i} x1={l.x} y1={EJE_Y - RADIO_EJE} x2={l.x + l.skew} y2={EJE_Y + RADIO_EJE} stroke="#0f2e47" strokeWidth={1.3} opacity={0.65} />
       ))}
 
+      {/* Cota L: longitud del eje */}
+      <g stroke="#5b6b78" strokeWidth={1}>
+        <line x1={X_FIJO} y1={EJE_Y - RADIO_EJE - 14} x2={X_LIBRE} y2={EJE_Y - RADIO_EJE - 14} />
+        <line x1={X_FIJO} y1={EJE_Y - RADIO_EJE - 18} x2={X_FIJO} y2={EJE_Y - RADIO_EJE - 10} />
+        <line x1={X_LIBRE} y1={EJE_Y - RADIO_EJE - 18} x2={X_LIBRE} y2={EJE_Y - RADIO_EJE - 10} />
+      </g>
+      <text x={(X_FIJO + X_LIBRE) / 2} y={EJE_Y - RADIO_EJE - 20} textAnchor="middle" fontSize="11" fill="#5b6b78" fontStyle="italic">L</text>
+
       {/* Manivela / llave de torsión en el extremo libre, rota con φ */}
       <g transform={`rotate(${phiDeg}, ${X_LIBRE + 22}, ${EJE_Y})`}>
         <circle cx={X_LIBRE + 22} cy={EJE_Y} r={16} fill="#8a97a3" stroke="#4a5663" strokeWidth={1.5} />
         <line x1={X_LIBRE + 22} y1={EJE_Y} x2={X_LIBRE + 22 + 34} y2={EJE_Y} stroke="#b3541e" strokeWidth={5} strokeLinecap="round" />
         <circle cx={X_LIBRE + 22 + 34} cy={EJE_Y} r={5} fill="#b3541e" />
       </g>
-      <text x={X_LIBRE + 22} y={EJE_Y - 30} textAnchor="middle" fontSize="10" fill="#b3541e" fontWeight="bold">T</text>
+      <text x={X_LIBRE + 22} y={EJE_Y - 32} textAnchor="middle" fontSize="15" fill="#b3541e" fontWeight="bold">T</text>
 
       {/* Indicador angular */}
       <ComparadorDial cx={200} cy={236} radio={24} progreso={progreso} valor={phiDeg} unidad="°" decimales={3} etiqueta="Indicador angular" />

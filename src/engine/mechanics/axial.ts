@@ -51,17 +51,59 @@ export function deformacionFluencia(material: Material): number | undefined {
   return sigmaY_MPa / E_MPa;
 }
 
+/** Puntos de ruptura (en ε) de la curva bilineal ampliada, derivados de las propiedades del material. */
+export interface ParametrosCurvaBilineal {
+  epsY: number;
+  epsPlateauFin: number; // fin de la meseta de fluencia (= epsY si el material no tiene meseta)
+  epsUTS: number; // deformación en la resistencia última (inicio idealizado de la estricción)
+  epsF: number; // deformación a la fractura
+  sigmaY: number;
+  sigmaU: number;
+  sigmaFractura: number; // esfuerzo ingenieril remanente en la fractura, tras la estricción
+}
+
+/** Ancho de la meseta de fluencia (deformación de Lüders), típico de orden de 1 a 2 % en aceros al carbono. */
+const ANCHO_MESETA = 0.015;
+/** Ubicación de εUTS como fracción del tramo entre el fin de la meseta y εF (idealizado, didáctico). */
+const FRACCION_DEFORMACION_UTS = 0.7;
+/** Esfuerzo ingenieril remanente en la fractura como fracción de σU (la estricción reduce el área real,
+ *  por lo que el esfuerzo ingenieril —referido al área original— cae antes de la fractura). */
+const FRACCION_ESFUERZO_FRACTURA = 0.82;
+
+export function parametrosCurvaBilineal(material: Material): ParametrosCurvaBilineal | undefined {
+  const { E_MPa, sigmaY_MPa, sigmaU_MPa, epsilonF } = material.propiedades;
+  if (E_MPa === undefined || sigmaY_MPa === undefined || sigmaU_MPa === undefined || epsilonF === undefined || epsilonF <= sigmaY_MPa / E_MPa) {
+    return undefined;
+  }
+  const epsY = sigmaY_MPa / E_MPa;
+  const epsPlateauFin = material.mesetaFluencia ? Math.min(epsY + ANCHO_MESETA, epsilonF) : epsY;
+  const epsUTS = epsPlateauFin + FRACCION_DEFORMACION_UTS * Math.max(epsilonF - epsPlateauFin, 0);
+  return {
+    epsY,
+    epsPlateauFin,
+    epsUTS,
+    epsF: epsilonF,
+    sigmaY: sigmaY_MPa,
+    sigmaU: sigmaU_MPa,
+    sigmaFractura: sigmaU_MPa * FRACCION_ESFUERZO_FRACTURA,
+  };
+}
+
 /**
  * Esfuerzo ingenieril σ(ε) según el modelo constitutivo del material:
  * - elastico_lineal / fragil_lineal: σ = E·ε hasta ε = εF (fractura); más allá no está definido.
- * - elastico_plastico_bilineal: tramo elástico E·ε hasta εY, luego endurecimiento lineal
- *   hasta (εF, σU). Es un modelo simplificado (bilineal) pensado para fines didácticos,
- *   construido únicamente con las propiedades documentadas del material (σY, σU, εF).
+ * - elastico_plastico_bilineal: tramo elástico E·ε hasta εY; luego, si el material tiene
+ *   {@link Material.mesetaFluencia}, una meseta plana en σY (fenómeno de Lüders); después
+ *   endurecimiento hasta (εUTS, σU); y finalmente un ablandamiento ingenieril hasta (εF,
+ *   σ_fractura) que representa la estricción. Es un modelo simplificado por tramos rectos
+ *   (no una curva continua real), pensado para fines didácticos, construido únicamente con
+ *   σY, σU y εF documentados — εUTS y σ_fractura se estiman con fracciones fijas, no con datos
+ *   propios de cada material.
  *
  * Devuelve undefined si ε supera εF (la probeta ya fracturó) o si faltan datos.
  */
 export function esfuerzoEnDeformacion(material: Material, epsilon: number): number | undefined {
-  const { E_MPa, sigmaY_MPa, sigmaU_MPa, epsilonF } = material.propiedades;
+  const { E_MPa, epsilonF } = material.propiedades;
   if (E_MPa === undefined) return undefined;
   const epsAbs = Math.abs(epsilon);
   const signo = epsilon < 0 ? -1 : 1;
@@ -72,26 +114,39 @@ export function esfuerzoEnDeformacion(material: Material, epsilon: number): numb
   }
 
   // elastico_plastico_bilineal
-  if (sigmaY_MPa === undefined) return signo * E_MPa * epsAbs;
-  const epsY = sigmaY_MPa / E_MPa;
-  if (epsAbs <= epsY) return signo * E_MPa * epsAbs;
-  if (sigmaU_MPa === undefined || epsilonF === undefined || epsilonF <= epsY) return signo * sigmaY_MPa;
-  if (epsAbs > epsilonF) return undefined; // fractura
-  const Ep = (sigmaU_MPa - sigmaY_MPa) / (epsilonF - epsY);
-  return signo * (sigmaY_MPa + Ep * (epsAbs - epsY));
+  const p = parametrosCurvaBilineal(material);
+  if (!p) {
+    // Sin suficientes datos (σU o εF) para construir la curva completa: solo el tramo elástico/meseta.
+    const sigmaY = material.propiedades.sigmaY_MPa;
+    if (sigmaY === undefined) return signo * E_MPa * epsAbs;
+    const epsY = sigmaY / E_MPa;
+    return epsAbs <= epsY ? signo * E_MPa * epsAbs : signo * sigmaY;
+  }
+  if (epsAbs <= p.epsY) return signo * E_MPa * epsAbs;
+  if (epsAbs <= p.epsPlateauFin) return signo * p.sigmaY;
+  if (epsAbs <= p.epsUTS) {
+    const Ep = (p.sigmaU - p.sigmaY) / (p.epsUTS - p.epsPlateauFin);
+    return signo * (p.sigmaY + Ep * (epsAbs - p.epsPlateauFin));
+  }
+  if (epsAbs <= p.epsF) {
+    const pendiente = (p.sigmaFractura - p.sigmaU) / (p.epsF - p.epsUTS);
+    return signo * (p.sigmaU + pendiente * (epsAbs - p.epsUTS));
+  }
+  return undefined; // fractura
 }
 
 /**
- * Inversa de {@link esfuerzoEnDeformacion}: deformación unitaria ε que produce un esfuerzo σ dado.
- * Como el modelo es monótono creciente (sin ablandamiento ni estricción), la inversión es directa
- * por tramos. Se usa para permitir un control del ensayo por fuerza aplicada (la variable que
- * físicamente manipula el estudiante en una máquina de ensayos) en vez de por deformación.
+ * Inversa de {@link esfuerzoEnDeformacion}, restringida al tramo ASCENDENTE de la curva (elástico +
+ * meseta + endurecimiento, hasta εUTS). Más allá de σU la curva se dobla y deja de ser invertible
+ * como función — y, físicamente, un ensayo controlado por fuerza no puede sostenerse ahí: una vez
+ * alcanzado el esfuerzo último la probeta se desestabiliza (empieza la estricción) y el control por
+ * fuerza no puede seguir el ablandamiento posterior, que solo se observa controlando desplazamiento.
+ * Se usa para permitir controlar el ensayo por la fuerza aplicada en vez de por deformación.
  *
- * Devuelve undefined si |σ| excede la resistencia que el modelo puede alcanzar (la probeta ya
- * habría fracturado o fluido sin límite) o si faltan datos del material.
+ * Devuelve undefined si |σ| excede σU (o la resistencia del modelo frágil) o si faltan datos.
  */
 export function deformacionDesdeEsfuerzo(material: Material, sigma_MPa: number): number | undefined {
-  const { E_MPa, sigmaY_MPa, sigmaU_MPa, epsilonF } = material.propiedades;
+  const { E_MPa, sigmaY_MPa, epsilonF } = material.propiedades;
   if (E_MPa === undefined) return undefined;
   const sigmaAbs = Math.abs(sigma_MPa);
   const signo = sigma_MPa < 0 ? -1 : 1;
@@ -105,11 +160,11 @@ export function deformacionDesdeEsfuerzo(material: Material, sigma_MPa: number):
   // elastico_plastico_bilineal
   if (sigmaY_MPa === undefined) return (signo * sigmaAbs) / E_MPa;
   if (sigmaAbs <= sigmaY_MPa) return (signo * sigmaAbs) / E_MPa;
-  const epsY = sigmaY_MPa / E_MPa;
-  if (sigmaU_MPa === undefined || epsilonF === undefined || epsilonF <= epsY) return undefined; // plateau sin límite: no invertible más allá de σY
-  if (sigmaAbs > sigmaU_MPa) return undefined;
-  const Ep = (sigmaU_MPa - sigmaY_MPa) / (epsilonF - epsY);
-  return signo * (epsY + (sigmaAbs - sigmaY_MPa) / Ep);
+  const p = parametrosCurvaBilineal(material);
+  if (!p) return undefined; // meseta sin límite superior conocido: no invertible más allá de σY
+  if (sigmaAbs > p.sigmaU) return undefined;
+  const Ep = (p.sigmaU - p.sigmaY) / (p.epsUTS - p.epsPlateauFin);
+  return signo * (p.epsPlateauFin + (sigmaAbs - p.sigmaY) / Ep);
 }
 
 /**

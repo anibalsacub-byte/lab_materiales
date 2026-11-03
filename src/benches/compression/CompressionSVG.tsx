@@ -6,6 +6,7 @@ interface Props {
   estado: 'elastico' | 'plastico' | 'destruida';
   acortamientoMm: number;
   progreso: number; // epsilon / límite del ensayo, en [0, 1] — para la aguja del comparador
+  diametroMm?: number;
 }
 
 const ALTO_BASE = 140;
@@ -18,7 +19,7 @@ const COLORES_ESTADO: Record<Props['estado'], { claro: string; oscuro: string }>
   destruida: { claro: '#c94747', oscuro: '#7a1818' },
 };
 
-export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm, progreso }: Props) {
+export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm, progreso, diametroMm }: Props) {
   const acortamiento = Math.min(epsilon * amplificacion, 0.85) * ALTO_BASE;
   const altoProbeta = Math.max(ALTO_BASE - acortamiento, 10);
   const topY = CENTRO_Y - altoProbeta / 2;
@@ -64,11 +65,16 @@ export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm,
       <rect x={170 - anchoActual / 2 - 10} y={topY - 12} width={anchoActual + 20} height={12} rx={2.5} fill="url(#platoCompresion)" />
       <rect x={170 - anchoActual / 2 - 10} y={bottomY} width={anchoActual + 20} height={12} rx={2.5} fill="url(#platoCompresion)" />
 
-      {/* Flechas de carga */}
+      {/* Flechas de carga F */}
       {epsilon > 0.0001 && (
         <>
+          <line x1={170} y1={topY - 44} x2={170} y2={topY - 30} stroke="#b3541e" strokeWidth={3.5} />
           <polygon points={`170,${topY - 30} 162,${topY - 16} 178,${topY - 16}`} fill="#b3541e" />
+          <text x={184} y={topY - 32} fontSize="15" fill="#b3541e" fontWeight="bold">F</text>
+
+          <line x1={170} y1={bottomY + 30} x2={170} y2={bottomY + 44} stroke="#b3541e" strokeWidth={3.5} />
           <polygon points={`170,${bottomY + 30} 162,${bottomY + 16} 178,${bottomY + 16}`} fill="#b3541e" />
+          <text x={184} y={bottomY + 42} fontSize="15" fill="#b3541e" fontWeight="bold">F</text>
         </>
       )}
 
@@ -84,6 +90,17 @@ export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm,
         strokeWidth={1.5}
         filter="url(#sombraSuave)"
       />
+
+      {/* Cota Lo: longitud calibrada */}
+      <g stroke="#5b6b78" strokeWidth={1}>
+        <line x1={170 + anchoActual / 2 + 14} y1={topY} x2={170 + anchoActual / 2 + 14} y2={bottomY} />
+        <line x1={170 + anchoActual / 2 + 10} y1={topY} x2={170 + anchoActual / 2 + 18} y2={topY} />
+        <line x1={170 + anchoActual / 2 + 10} y1={bottomY} x2={170 + anchoActual / 2 + 18} y2={bottomY} />
+      </g>
+      <text x={170 + anchoActual / 2 + 24} y={CENTRO_Y} fontSize="11" fill="#5b6b78" fontStyle="italic">Lo</text>
+      {diametroMm !== undefined && (
+        <text x={246} y={topY - 2} textAnchor="end" fontSize="10.5" fill="#5b6b78">D = {diametroMm.toFixed(1)} mm</text>
+      )}
 
       {/* Comparador axial: montado fuera del bastidor, con un brazo que lo conecta al plato móvil */}
       <line x1={32} y1={CENTRO_Y - 10} x2={80} y2={topY - 6} stroke="#8a97a3" strokeWidth={1.5} strokeDasharray="3 2" />

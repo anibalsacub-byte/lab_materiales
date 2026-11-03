@@ -23,30 +23,36 @@ Implementado y funcional:
 - **Motor de medición virtual** (`src/engine/measurement.ts`): instrumentos con rango,
   resolución, error de cero y incertidumbre; variación sintética pequeña y reproducible a
   partir de una semilla (nunca `Math.random()` libre).
-- **Motor mecánico** (`src/engine/mechanics/`): carga axial con modelo constitutivo
-  elástico/elastoplástico bilineal/frágil según el material (`axial.ts`, con inversa
-  esfuerzo→deformación para controlar el ensayo por fuerza), pandeo de Euler con las 4
-  condiciones de apoyo ideales y modelo de imperfección inicial (`buckling.ts`), transformación
-  de esfuerzos y círculo de Mohr (`mohr.ts`), torsión elástica de ejes circulares (`torsion.ts`)
-  y recipientes a presión (`pressureVessel.ts`) — este último, de momento, solo como motor de
-  cálculo validado numéricamente; su banco interactivo (Banco 8) llega en una etapa posterior.
+- **Motor mecánico** (`src/engine/mechanics/`): carga axial con modelo constitutivo trilineal —
+  elástico, meseta de fluencia (solo en los materiales que realmente la presentan, p. ej. aceros
+  al carbono normalizados) y endurecimiento hasta σU, seguido de un ablandamiento idealizado por
+  estricción hasta la fractura (`axial.ts`, con inversa esfuerzo→deformación, válida solo en el
+  tramo ascendente, para controlar el ensayo por fuerza); pandeo de Euler con las 4 condiciones
+  de apoyo ideales y modelo de imperfección inicial (`buckling.ts`); transformación de esfuerzos y
+  círculo de Mohr (`mohr.ts`); torsión elástica de ejes circulares (`torsion.ts`); flexión de
+  vigas simplemente apoyadas o en voladizo, con carga puntual o distribuida — reacciones, V(x),
+  M(x) y deflexión con fórmulas cerradas (`bending.ts`); y recipientes a presión
+  (`pressureVessel.ts`) — este último, de momento, solo como motor de cálculo validado
+  numéricamente; su banco interactivo (Banco 8) llega en una etapa posterior.
 - **Analizador de secciones** (`src/engine/sections.ts`): área, centroide, Ix, Iy, Ixy, radios de
   giro y ejes principales para secciones circulares, rectangulares (macizas y tubulares) y
   perfiles I, T y L (por el método de rectángulos compuestos).
-- **Banco 1 — Tracción**, **Banco 2 — Compresión**, **Banco 5 — Torsión** y **Banco 6 — Pandeo de
-  columnas**: manipulación directa de la carga (por fuerza, deformación unitaria o milímetros en
-  los ensayos axiales; por par torsor en torsión), representación SVG interactiva con
-  instrumentos en vivo (celda de carga o torquímetro con rango autoajustado, comparador de
-  carátula, gráfico en tiempo real), descarga/deformación permanente, fractura visual en
-  tracción, probeta destructible y reemplazable, registro de puntos y comparación instantánea
-  contra el modelo de referencia — todo en una sola vista, sin pasos obligatorios, al estilo de
-  los simuladores de [PhET](https://phet.colorado.edu/).
+- **Banco 1 — Tracción**, **Banco 2 — Compresión**, **Banco 3 — Flexión**, **Banco 5 — Torsión** y
+  **Banco 6 — Pandeo de columnas**: manipulación directa de la carga (por fuerza, deformación
+  unitaria o milímetros en los ensayos axiales; por par torsor en torsión; por carga puntual o
+  distribuida en flexión), representación SVG con cotas de dibujo técnico (probeta tipo "hueso de
+  perro" con mordazas, hombros y cota Lo en tracción/compresión; cota L en pandeo/torsión/flexión)
+  e instrumentos en vivo (celda de carga o torquímetro con rango autoajustado, comparador de
+  carátula, gráficos en tiempo real — incluidos los diagramas V(x)/M(x) en flexión), descarga/
+  deformación permanente, fractura visual en tracción, probeta destructible y reemplazable,
+  registro de puntos y comparación instantánea contra el modelo de referencia — todo en una sola
+  vista, sin pasos obligatorios, al estilo de los simuladores de [PhET](https://phet.colorado.edu/).
 - **Estación A — Propiedades geométricas** y **Estación B — Círculo de Mohr**: herramientas de
   análisis interactivas con representación gráfica.
 - **Exportación**: mediciones a CSV, sesión completa a JSON, informe imprimible (PDF vía
   impresión del navegador).
 
-Pendiente para etapas siguientes: bancos de Flexión, Cortante, Uniones mecánicas y Recipientes a
+Pendiente para etapas siguientes: bancos de Cortante, Uniones mecánicas y Recipientes a
 presión; un modo guiado/evaluación opcional (predicción previa, rúbrica, semillas por
 estudiante) construido sobre este mismo simulador.
 
@@ -78,6 +84,7 @@ src/
   benches/                   Un banco de ensayo = <Nombre>Bench.tsx + <Nombre>SVG.tsx
     traction/
     compression/
+    bending/
     torsion/
     buckling/
   stations/                  Una estación de análisis = <Nombre>Station.tsx + <Nombre>SVG.tsx
@@ -98,7 +105,7 @@ Requiere Node.js 20+.
 ```bash
 npm install
 npm run dev        # http://localhost:5173 con recarga en caliente
-npm test            # 76 pruebas de validación numérica (vitest)
+npm test            # 100 pruebas de validación numérica (vitest)
 npm run build       # compila TypeScript y genera dist/ para producción
 npm run preview     # sirve dist/ localmente
 ```
