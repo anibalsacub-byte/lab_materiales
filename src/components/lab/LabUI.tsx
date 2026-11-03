@@ -1,5 +1,33 @@
 import { CATEGORIAS_MATERIAL, MATERIALES } from '../../engine/materials';
 
+export type TipoIcono = 'play' | 'pausa' | 'descargar' | 'montar' | 'retirar' | 'cero' | 'reiniciar';
+
+/** Íconos de los mandos de la máquina (SVG en línea: se ven igual en cualquier sistema, a diferencia de ▶ que algunos muestran como emoji). */
+export function Icono({ tipo }: { tipo: TipoIcono }) {
+  const trazo = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  return (
+    <svg className="icono" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+      {tipo === 'play' && <path d="M4.5 2.5 L13 8 L4.5 13.5 Z" fill="currentColor" />}
+      {tipo === 'pausa' && (
+        <>
+          <rect x="3.5" y="2.5" width="3" height="11" rx="0.8" fill="currentColor" />
+          <rect x="9.5" y="2.5" width="3" height="11" rx="0.8" fill="currentColor" />
+        </>
+      )}
+      {tipo === 'descargar' && <path d="M8 2.5 V12 M4 8.5 L8 12.5 L12 8.5 M3 14.5 H13" {...trazo} />}
+      {tipo === 'montar' && <path d="M8 13.5 V4 M4 7.5 L8 3.5 L12 7.5 M3 1.5 H13" {...trazo} />}
+      {tipo === 'retirar' && <path d="M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5" {...trazo} />}
+      {tipo === 'cero' && (
+        <>
+          <ellipse cx="8" cy="8" rx="4" ry="5.5" {...trazo} />
+          <path d="M5 13 L11 3" {...trazo} />
+        </>
+      )}
+      {tipo === 'reiniciar' && <path d="M13 8 A5 5 0 1 1 11.5 4.5 M12 1.5 V5 H8.5" {...trazo} />}
+    </svg>
+  );
+}
+
 /** Franja de lecturas con aspecto de display de instrumento (tipografía monoespaciada, cifras grandes). */
 export function DisplayDigital({ items }: { items: { etiqueta: string; valor: string; unidad: string; alerta?: boolean }[] }) {
   return (

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FichaMaterial } from '../../components/MaterialSelector';
 import { TablaValidacion, FilaValidacion } from '../../components/FilaValidacion';
-import { BarraPasos, ChipsMaterial, DisplayDigital, Segmentado, Stepper } from '../../components/lab/LabUI';
+import { BarraPasos, ChipsMaterial, DisplayDigital, Icono, Segmentado, Stepper } from '../../components/lab/LabUI';
 import { GraficoEnsayo, type OpcionesGrafico, type PuntoClave, type RegionGrafico } from '../../components/svg/GraficoEnsayo';
 import { MaquinaUniversalSVG } from '../../components/svg/MaquinaUniversalSVG';
 import { useSesionEnsayo } from '../../trial/useSesionEnsayo';
@@ -20,7 +20,8 @@ import { calcularSeccion } from '../../engine/sections';
 import { medir, INSTRUMENTOS, elegirCeldaCarga } from '../../engine/measurement';
 import type { CategoriaMaterial, LecturaInstrumento, Material } from '../../engine/types';
 
-type EstadoMaquina = 'desmontada' | 'montada' | 'corriendo' | 'pausada' | 'descargando' | 'fracturada';
+/** 'retirada': la probeta se descargó por completo y se sacó de las mordazas; conserva su deformación permanente. */
+type EstadoMaquina = 'desmontada' | 'montada' | 'corriendo' | 'pausada' | 'descargando' | 'retirada' | 'fracturada';
 type TipoSeccionLocal = 'circular' | 'rectangular';
 type FactorTiempo = '1' | '10' | '50';
 type PasoJog = '0.001' | '0.01' | '0.1' | '1';
@@ -68,12 +69,12 @@ interface EstadoSimulacion {
   verdaderos: PuntoVerdadero[];
   ultimoT: number;
   ultimoSigma: number;
-  /** Esfuerzo máximo alcanzado (lo retiene el indicador de pico de la consola). */
-  sigmaPico: number;
+  /** Mayor lectura de la celda de carga (N): el indicador de pico retiene lo que realmente leyó. */
+  picoLeido: number;
 }
 
 function simulacionInicial(): EstadoSimulacion {
-  return { eps: 0, epsMax: 0, t: 0, traza: [{ epsilon: 0, sigma_MPa: 0, envolvente: true }], verdaderos: [], ultimoT: -Infinity, ultimoSigma: 0, sigmaPico: 0 };
+  return { eps: 0, epsMax: 0, t: 0, traza: [{ epsilon: 0, sigma_MPa: 0, envolvente: true }], verdaderos: [], ultimoT: -Infinity, ultimoSigma: 0, picoLeido: 0 };
 }
 
 function fmt(v: number, decimales: number): string {
@@ -168,7 +169,9 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
     const s = sim.current;
     const sigma = estado === 'fracturada' ? 0 : sigmaDe(s.eps, s.epsMax);
     const tiempo: LecturaInstrumento = { valor: Number(s.t.toFixed(2)), unidad: 's', incertidumbre: 0, fueraDeRango: false, advertencias: [] };
-    agregarMedicion({ tiempo, ...leer(s.eps, sigma, s.verdaderos.length) });
+    const lecturas = leer(s.eps, sigma, s.verdaderos.length);
+    s.picoLeido = Math.max(s.picoLeido, lecturas.fuerza.valor ?? 0);
+    agregarMedicion({ tiempo, ...lecturas });
     s.verdaderos.push({ eps: s.eps, sigma, t: s.t, manual });
     s.ultimoT = s.t;
     s.ultimoSigma = sigma;
@@ -178,7 +181,6 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
     const s = sim.current;
     const ultimo = s.traza[s.traza.length - 1];
     const envolvente = s.eps >= s.epsMax - 1e-12;
-    s.sigmaPico = Math.max(s.sigmaPico, sigma);
     if (Math.abs(s.eps - ultimo.epsilon) > epsF / 800 || Math.abs(sigma - ultimo.sigma_MPa) > 0.004 * sigmaU || envolvente !== ultimo.envolvente) {
       s.traza.push({ epsilon: s.eps, sigma_MPa: sigma, envolvente });
     }
@@ -189,11 +191,12 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
     s.eps = epsF;
     s.epsMax = epsF;
     const sigmaRotura = esfuerzoEnDeformacion(material, epsF) ?? 0;
-    s.sigmaPico = Math.max(s.sigmaPico, sigmaRotura);
     s.traza.push({ epsilon: epsF, sigma_MPa: sigmaRotura, envolvente: true }, { epsilon: epsF, sigma_MPa: 0, envolvente: true });
     // La máquina registra el último punto con carga antes de detectar la caída de fuerza.
     const tiempo: LecturaInstrumento = { valor: Number(s.t.toFixed(2)), unidad: 's', incertidumbre: 0, fueraDeRango: false, advertencias: [] };
-    agregarMedicion({ tiempo, ...leer(epsF, sigmaRotura, s.verdaderos.length) });
+    const lecturas = leer(epsF, sigmaRotura, s.verdaderos.length);
+    s.picoLeido = Math.max(s.picoLeido, lecturas.fuerza.valor ?? 0);
+    agregarMedicion({ tiempo, ...lecturas });
     s.verdaderos.push({ eps: epsF, sigma: sigmaRotura, t: s.t, manual: false });
     marcarProbetaDestruida();
     setEstado('fracturada');
@@ -250,7 +253,8 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
       const r = simularRef.current(dtReal * factorRef.current, estado === 'descargando');
       forzarRender((n) => n + 1);
       if (r === 'fractura') return fracturarRef.current();
-      if (r === 'descargada') return setEstado('pausada');
+      // Sin carga, el operador abre las mordazas y retira la probeta.
+      if (r === 'descargada') return setEstado('retirada');
       id = requestAnimationFrame(cuadro);
     };
     id = requestAnimationFrame(cuadro);
@@ -309,16 +313,21 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
   const s = sim.current;
   const fracturada = estado === 'fracturada';
   const enMovimiento = estado === 'corriendo' || estado === 'descargando';
+  // `montada`: la probeta ya se usó (bloquea material y geometría); `enMaquina`: está entre las mordazas.
   const montada = estado !== 'desmontada';
-  const sigmaActual = fracturada ? 0 : sigmaDe(s.eps, s.epsMax);
+  const retirada = estado === 'retirada';
+  const enMaquina = montada && !retirada;
+  const sigmaActual = fracturada || retirada ? 0 : sigmaDe(s.eps, s.epsMax);
 
-  const lecturaVivo = montada ? leer(s.eps, sigmaActual, 100000 + Math.floor(s.t * 10)) : null;
+  const lecturaVivo = enMaquina ? leer(s.eps, sigmaActual, 100000 + Math.floor(s.t * 10)) : null;
   const F = lecturaVivo?.fuerza.valor;
   const ext = lecturaVivo?.alargamiento.valor;
-  const displayCarga = F === null || F === undefined ? (montada ? 'OVL' : '—') : fmt(F / 1000, 2);
-  const displayExt = ext === null || ext === undefined ? (montada ? 'OVL' : '—') : fmt(ext, 3);
-  const pico = montada ? medir(s.sigmaPico * A, celda, { semillaEnsayo: sesion.semilla, indicePunto: 99999, calibrado: tarado }).valor : undefined;
-  const displayPico = pico === null ? 'OVL' : pico === undefined ? '—' : fmt(pico / 1000, 2);
+  const displayCarga = F === null || F === undefined ? (enMaquina ? 'OVL' : '—') : fmt(F / 1000, 2);
+  const displayExt = ext === null || ext === undefined ? (enMaquina ? 'OVL' : '—') : fmt(ext, 3);
+  // Lo que muestra el display también cuenta para el pico (máximo es idempotente: seguro en el render).
+  if (typeof F === 'number') s.picoLeido = Math.max(s.picoLeido, F);
+  const pico = montada ? s.picoLeido : undefined;
+  const displayPico = pico === undefined ? '—' : fmt(pico / 1000, 2);
 
   const k = Math.min(25, 0.6 / epsF);
   const colorProbeta = COLORES_PROBETA[material.categoria];
@@ -326,6 +335,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
 
   const regimen = (() => {
     if (!montada) return '—';
+    if (retirada) return `Sin carga · deformación permanente εp = ${fmt(s.eps, 4)}`;
     if (fracturada) return ductil ? 'Fractura dúctil (copa y cono)' : 'Fractura frágil';
     if (s.eps < s.epsMax - 1e-9) return 'Descarga / recarga elástica';
     if (!ductil || !pc) return 'Sin fluencia — comportamiento frágil';
@@ -341,6 +351,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
     corriendo: `En marcha · travesaño a ${fmt(velocidad, 1)} mm/min`,
     pausada: 'En pausa — puede mover el travesaño manualmente',
     descargando: `Descargando · travesaño a ${fmt(velocidad, 1)} mm/min`,
+    retirada: `Probeta retirada — quedó ${fmt(s.eps * L, 3)} mm más larga. Vuelva a montarla para recargarla o use «Nueva probeta»`,
     fracturada: 'Probeta fracturada — la máquina detectó la caída de carga',
   };
 
@@ -421,7 +432,8 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
             estriccion={estriccion}
             fracturada={fracturada}
             tipoFractura={ductil ? 'ductil' : 'fragil'}
-            mordazasCerradas={montada}
+            mordazasCerradas={enMaquina}
+            probetaVisible={!retirada}
             enMarcha={enMovimiento}
             seccion={tipoSeccion}
             displayCarga={displayCarga}
@@ -441,7 +453,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
             <div>
               Lo {fmt(L, 1)} → {fmt(L * (1 + s.eps), 2)} mm (+{fmt(s.eps * 100, 2)} %) · t = {fmt(s.t, 1)} s · escala gráfica del alargamiento ×{fmt(k, 1)}
             </div>
-            {montada && !tarado && !fracturada && <div className="texto-alerta">⚠ Instrumentos sin tarar: las lecturas incluyen un error de cero.</div>}
+            {enMaquina && !tarado && !fracturada && <div className="texto-alerta">⚠ Instrumentos sin tarar: las lecturas incluyen un error de cero.</div>}
           </div>
         </section>
 
@@ -494,21 +506,26 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
           />
           <div className="controles-principales">
             {estado === 'desmontada' ? (
-              <button className="btn-grande btn-montar" onClick={() => setEstado('montada')} disabled={!seccion}>Montar probeta</button>
+              <button className="btn-grande btn-montar" onClick={() => setEstado('montada')} disabled={!seccion}><Icono tipo="montar" /> Montar probeta</button>
+            ) : retirada ? (
+              <button className="btn-grande btn-montar" onClick={() => setEstado('pausada')} title="Monta de nuevo la misma probeta, con su deformación permanente">
+                <Icono tipo="montar" /> Volver a montar
+              </button>
             ) : (
-              <button className="btn-grande" onClick={() => setEstado('desmontada')} disabled={estado !== 'montada' || s.eps > 0}>Desmontar</button>
+              <button className="btn-grande" onClick={() => setEstado('desmontada')} disabled={estado !== 'montada' || s.eps > 0}><Icono tipo="retirar" /> Desmontar</button>
             )}
             <button className="btn-grande" onClick={() => setTarado(true)} disabled={estado !== 'montada' || tarado || s.eps > 0} title="Pone a cero la celda de carga y los extensómetros antes de cargar">
-              {tarado ? 'Tarado ✓' : 'Cero / tara'}
+              <Icono tipo="cero" /> {tarado ? 'Tarado ✓' : 'Cero / tara'}
             </button>
             {enMovimiento ? (
-              <button className="btn-grande btn-pausa" onClick={() => setEstado('pausada')}>Pausa</button>
+              <button className="btn-grande btn-pausa" onClick={() => setEstado('pausada')}><Icono tipo="pausa" /> Pausa</button>
             ) : (
               <button className="btn-grande btn-iniciar" onClick={iniciar} disabled={estado !== 'montada' && estado !== 'pausada'}>
-                {estado === 'pausada' ? 'Continuar' : 'Iniciar'}
+                <Icono tipo="play" /> {estado === 'pausada' ? 'Continuar' : 'Iniciar'}
               </button>
             )}
-            <button className="btn-grande" onClick={() => setEstado('descargando')} disabled={!(estado === 'corriendo' || estado === 'pausada') || sigmaActual <= 0}>
+            <button className="btn-grande" onClick={() => setEstado('descargando')} disabled={!(estado === 'corriendo' || estado === 'pausada') || sigmaActual <= 0} title="Descarga hasta carga cero y retira la probeta">
+              <Icono tipo="descargar" />
               Descargar
             </button>
           </div>
@@ -599,7 +616,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
             <div className="segmentado-grupo">
               <span className="stepper-etiqueta">Probeta</span>
               <button type="button" className="btn-peligro-suave" onClick={() => { nuevaProbeta(); setProbetasUsadas((n) => n + 1); }}>
-                Nueva probeta
+                <Icono tipo="reiniciar" /> Nueva probeta
               </button>
             </div>
           </div>

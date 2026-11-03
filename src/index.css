@@ -336,3 +336,5 @@ body.modo-lab, body.modo-lab #root { background: #0a1219; }
 .panel-columna .controles-principales { margin-top: 12px; }
 .datos-vivo { flex: 1 1 0; min-height: 190px; display: flex; flex-direction: column; }
 .tabla-scroll.tabla-relleno { flex: 1 1 0; min-height: 120px; max-height: none; }
+.btn-grande { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.icono { flex: none; vertical-align: -2px; }

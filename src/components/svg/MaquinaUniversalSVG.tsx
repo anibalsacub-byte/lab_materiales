@@ -8,6 +8,8 @@ interface Props {
   fracturada: boolean;
   tipoFractura: 'ductil' | 'fragil';
   mordazasCerradas: boolean;
+  /** false cuando la probeta se retiró de la máquina (las mordazas quedan vacías). Por defecto, true. */
+  probetaVisible?: boolean;
   enMarcha: boolean;
   seccion: 'circular' | 'rectangular';
   /** Carga instantánea (kN). */
@@ -197,6 +199,8 @@ export function MaquinaUniversalSVG(p: Props) {
       <rect x={78} y={MESA_Y} width={364} height={18} rx={3} fill="#3b4a59" stroke="#1a232d" />
       {mordaza(yCuerpoInfTop, yHombroInfTop, false)}
 
+      {p.probetaVisible !== false && (
+      <>
       {/* Probeta */}
       <g filter="url(#umSombra)">
         {!p.fracturada ? (
@@ -239,6 +243,9 @@ export function MaquinaUniversalSVG(p: Props) {
       <text x={XC - 66} y={(marcaSup + marcaInf) / 2 + 7} textAnchor="end" fontSize="10" fill="#a9bdd1" fontStyle="italic">{p.cotaLo}</text>
       {p.cotaSeccion && (
         <text x={XC - 66} y={(marcaSup + marcaInf) / 2 + 21} textAnchor="end" fontSize="10" fill="#7f97b0">{p.cotaSeccion}</text>
+      )}
+
+      </>
       )}
 
       {/* Gabinete con consola */}
