@@ -59,6 +59,7 @@ describe('Instrumentación virtual', () => {
 
 describe('Selección automática de celda de carga', () => {
   it('elige la celda más pequeña que cubre la fuerza esperada', () => {
+    expect(elegirCeldaCarga(1000).id).toBe('celda-carga-5kn');
     expect(elegirCeldaCarga(10000).id).toBe('celda-carga-50kn');
     expect(elegirCeldaCarga(80000).id).toBe('celda-carga-200kn');
     expect(elegirCeldaCarga(500000).id).toBe('celda-carga-1000kn');

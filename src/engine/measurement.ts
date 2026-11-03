@@ -73,6 +73,16 @@ export function medir(
 
 /** Biblioteca de instrumentos virtuales usados por los distintos bancos. */
 export const INSTRUMENTOS: Record<string, EspecificacionInstrumento> = {
+  celdaCarga5kN: {
+    id: 'celda-carga-5kn',
+    nombre: 'Celda de carga 5 kN',
+    magnitud: 'fuerza axial',
+    unidad: 'N',
+    rango: [0, 5000],
+    resolucion: 0.5,
+    errorCeroMax_pct: 0.1,
+    incertidumbre_pct: 0.5,
+  },
   celdaCarga50kN: {
     id: 'celda-carga-50kn',
     nombre: 'Celda de carga 50 kN',
@@ -216,7 +226,7 @@ export const INSTRUMENTOS: Record<string, EspecificacionInstrumento> = {
  * sistemáticamente un instrumento de bajo rango.
  */
 export function elegirCeldaCarga(fuerzaMaxima_N: number): EspecificacionInstrumento {
-  const celdas = [INSTRUMENTOS.celdaCarga50kN, INSTRUMENTOS.celdaCarga200kN, INSTRUMENTOS.celdaCarga1000kN];
+  const celdas = [INSTRUMENTOS.celdaCarga5kN, INSTRUMENTOS.celdaCarga50kN, INSTRUMENTOS.celdaCarga200kN, INSTRUMENTOS.celdaCarga1000kN];
   const objetivo = Math.abs(fuerzaMaxima_N) * 1.15;
   return celdas.find((c) => c.rango[1] >= objetivo) ?? celdas[celdas.length - 1];
 }

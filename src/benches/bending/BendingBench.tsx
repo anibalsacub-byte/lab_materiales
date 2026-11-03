@@ -1,364 +1,444 @@
-import { useMemo, useState } from 'react';
-import { MaterialSelector } from '../../components/MaterialSelector';
+import { useEffect, useMemo, useState } from 'react';
+import { FichaMaterial } from '../../components/MaterialSelector';
 import { TablaValidacion, FilaValidacion } from '../../components/FilaValidacion';
-import { LecturasPanel } from '../../components/LecturasPanel';
-import { GraficoXY } from '../../components/svg/GraficoXY';
+import { BarraPasos, ChipsMaterial, DisplayDigital, Segmentado, Stepper } from '../../components/lab/LabUI';
+import {
+  BotonesExportar,
+  CasillasGrafico,
+  ControlesMovimiento,
+  LineaEstado,
+  MandosMaquina,
+  ResumenItem,
+  TablaDatosVivo,
+  fmt,
+  textoLectura,
+  textosEstadoBase,
+  useModoLab,
+} from '../../components/lab/PanelesEnsayo';
+import { COLORES_PROBETA } from '../../components/lab/coloresProbeta';
+import { GraficoEnsayo, type OpcionesGrafico, type PuntoClave, type PuntoXY, type RegionGrafico } from '../../components/svg/GraficoEnsayo';
+import { MarcoMaquinaSVG } from '../../components/svg/MarcoMaquinaSVG';
+import { MontajeFlexionSVG, altoVisualViga, yTravesanoFlexion } from './MontajeFlexionSVG';
 import { useSesionEnsayo } from '../../trial/useSesionEnsayo';
-import { exportarMedicionesCSV, exportarSesionJSON } from '../../trial/exportar';
+import { useEnsayoMaquina, type ModeloEnsayo } from '../../trial/useEnsayoMaquina';
 import { obtenerMaterial } from '../../engine/materials';
 import {
-  reaccionIzquierda,
-  reaccionDerecha,
-  momentoMaximo,
-  deflexionMaxima,
-  cortante,
-  momento,
-  esfuerzoFlexion,
-  type ApoyoViga,
-  type TipoCargaViga,
-  type ParametrosViga,
+  cargaEnFlecha,
+  curvaCargaFlecha,
+  inerciaSeccionFlexion,
+  momentoCentral,
+  semialturaSeccion,
+  type ConfiguracionFlexion,
+  type SeccionFlexion,
 } from '../../engine/mechanics/bending';
-import { calcularSeccion } from '../../engine/sections';
-import { medir, INSTRUMENTOS } from '../../engine/measurement';
-import { BendingSVG } from './BendingSVG';
-import type { LecturaInstrumento } from '../../engine/types';
+import { medir, INSTRUMENTOS, elegirCeldaCarga } from '../../engine/measurement';
 
-const AMPLIFICACION_VISUAL = 35;
-const N_MUESTRAS_DIAGRAMA = 40;
+type TipoSeccionLocal = 'rectangular' | 'circular';
+type VistaGrafico = 'carga' | 'momento' | 'cortante';
 
-type TipoSeccionLocal = 'circular' | 'rectangular';
-
-/** Carga máxima de ensayo: limita σ_max a 0.95·σY si hay dato de fluencia; si no, limita la
- *  deflexión a L/200 (criterio de servicio conservador habitual cuando no hay límite de resistencia). */
-function cargaMaxima(paramsUnitario: ParametrosViga, E_MPa: number, Ix_mm4: number, c_mm: number, sigmaY_MPa?: number): number {
-  const Mmax = Math.abs(momentoMaximo(paramsUnitario).valor);
-  const sigmaUnit = esfuerzoFlexion(Mmax, c_mm, Ix_mm4);
-  if (sigmaY_MPa !== undefined && sigmaUnit > 0) return (0.95 * sigmaY_MPa) / sigmaUnit;
-  const deltaUnit = deflexionMaxima(paramsUnitario, E_MPa, Ix_mm4).valor;
-  return deltaUnit > 0 ? paramsUnitario.L_mm / 200 / deltaUnit : 1000;
-}
+const ID_GRAFICO = 'grafico-ensayo-flexion';
+const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: false, energia: false, cuadricula: true, teorica: true };
 
 export function BendingBench({ onVolver }: { onVolver: () => void }) {
-  const { sesion, setMaterial, agregarMedicion, registrarCalculo, registrarConclusiones, reiniciarEnsayo } =
-    useSesionEnsayo('banco-3-flexion', 'sae-1018');
+  useModoLab();
+  const sesionEnsayo = useSesionEnsayo('banco-3-flexion', 'astm-a36');
+  const { sesion } = sesionEnsayo;
 
+  const [config, setConfig] = useState<ConfiguracionFlexion>('tres-puntos');
   const [tipoSeccion, setTipoSeccion] = useState<TipoSeccionLocal>('rectangular');
-  const [d, setD] = useState(30);
   const [b, setB] = useState(20);
-  const [h, setH] = useState(40);
-  const [L, setL] = useState(1000);
-  const [apoyo, setApoyo] = useState<ApoyoViga>('simple');
-  const [tipoCarga, setTipoCarga] = useState<TipoCargaViga>('puntual');
-  const [aMm, setAMm] = useState(500);
-  const [cargaAplicada, setCargaAplicada] = useState(0);
-  const [calibradoDeflectometro, setCalibradoDeflectometro] = useState(false);
-  const [puntosRegistrados, setPuntosRegistrados] = useState<number[]>([]);
-  const [indiceSeleccionado, setIndiceSeleccionado] = useState(0);
-  const [mostrarDiagramas, setMostrarDiagramas] = useState(true);
-  const [mostrarGraficoCargaDeflexion, setMostrarGraficoCargaDeflexion] = useState(false);
+  const [h, setH] = useState(10);
+  const [d, setD] = useState(12);
+  const [L, setL] = useState(200);
+  const [velocidad, setVelocidad] = useState(13);
+  const [pasoJog, setPasoJog] = useState('0.01');
+  const [vista, setVista] = useState<VistaGrafico>('carga');
+  const [opciones, setOpciones] = useState<OpcionesGrafico>(OPCIONES_INICIALES);
 
   const material = obtenerMaterial(sesion.materialId)!;
+  const ductil = material.modelo === 'elastico_plastico_bilineal';
   const E = material.propiedades.E_MPa ?? 200000;
-  const sigmaY = material.propiedades.sigmaY_MPa;
+  const seccion = useMemo<SeccionFlexion>(() => (tipoSeccion === 'rectangular' ? { tipo: 'rectangular', b, h } : { tipo: 'circular', d }), [tipoSeccion, b, h, d]);
+  const I = inerciaSeccionFlexion(seccion);
+  const c = semialturaSeccion(seccion);
+  const alto = tipoSeccion === 'rectangular' ? h : d;
 
-  const seccion = useMemo(() => {
-    try {
-      return tipoSeccion === 'circular' ? calcularSeccion({ tipo: 'circular_maciza', d }) : calcularSeccion({ tipo: 'rectangular', b, h });
-    } catch {
-      return null;
-    }
-  }, [tipoSeccion, d, b, h]);
+  const curva = useMemo(() => curvaCargaFlecha(material, seccion, L, config), [material, seccion, L, config]);
+  // Más allá de ~L/10 la teoría de pequeñas deflexiones deja de valer y la viga desliza sobre los apoyos.
+  const flechaRecorrido = L / 10;
+  const rompe = curva.deltaRotura < flechaRecorrido;
+  const xFinal = rompe ? curva.deltaRotura : flechaRecorrido;
+  const Penv = (delta: number) => cargaEnFlecha(curva, delta);
+  const Pmax = Penv(xFinal);
+  const celda = elegirCeldaCarga(Pmax);
+  const k = curva.rigidez;
+  const respuesta = (delta: number, deltaMax: number) => (delta >= deltaMax ? Penv(delta) : Math.max(0, Penv(deltaMax) - k * (deltaMax - delta)));
 
-  const Ix = seccion?.Ix_mm4 ?? 1;
-  const c = tipoSeccion === 'circular' ? d / 2 : h / 2;
-  const aValida = apoyo === 'simple' ? Math.min(Math.max(aMm, 1), L - 1) : L;
+  // x = flecha en el centro δ (mm), F = carga total P (N).
+  const modelo: ModeloEnsayo = {
+    respuesta,
+    xFalla: rompe ? curva.deltaRotura : undefined,
+    xFin: rompe ? undefined : flechaRecorrido,
+    xSinCarga: (deltaMax) => deltaMax - Penv(deltaMax) / k,
+    velocidad: velocidad / 60,
+    escalaF: Pmax,
+    escalaX: xFinal,
+    leer: (delta, P, indicePunto, calibrado) => {
+      const op = { semillaEnsayo: sesion.semilla, indicePunto, calibrado };
+      return {
+        fuerza: medir(P, celda, op),
+        flecha: medir(delta, INSTRUMENTOS.comparadorDigital25mm, op),
+      };
+    },
+    clavePico: 'fuerza',
+  };
+  const m = useEnsayoMaquina(sesionEnsayo, modelo);
+  const { sim: s, estado, fracturada, retirada, enMaquina, montada } = m;
+  const terminado = fracturada || estado === 'finalizada';
 
-  const paramsUnitario: ParametrosViga = useMemo(
-    () =>
-      tipoCarga === 'puntual'
-        ? { apoyo, tipoCarga, L_mm: L, P_N: 1, a_mm: apoyo === 'simple' ? aValida : undefined }
-        : { apoyo, tipoCarga, L_mm: L, w_N_mm: 1 },
-    [apoyo, tipoCarga, L, aValida],
-  );
+  // Velocidad sugerida para que el ensayo dure ~1,5 min (una viga frágil rompe con muy poca flecha).
+  useEffect(() => {
+    if (estado === 'desmontada') setVelocidad(Math.min(Math.max(Math.round((xFinal / 1.5) * 10) / 10, 0.1), 50));
+  }, [xFinal]);
 
-  const cargaMax = useMemo(() => Math.max(cargaMaxima(paramsUnitario, E, Ix, c, sigmaY), 0.01), [paramsUnitario, E, Ix, c, sigmaY]);
-  const cargaSegura = Math.min(cargaAplicada, cargaMax);
-  const pasoCarga = cargaMax / 500;
-
-  const params: ParametrosViga = useMemo(
-    () =>
-      tipoCarga === 'puntual'
-        ? { apoyo, tipoCarga, L_mm: L, P_N: cargaSegura, a_mm: apoyo === 'simple' ? aValida : undefined }
-        : { apoyo, tipoCarga, L_mm: L, w_N_mm: cargaSegura },
-    [apoyo, tipoCarga, L, cargaSegura, aValida],
-  );
-
-  const Rizq = reaccionIzquierda(params);
-  const Rder = reaccionDerecha(params);
-  const { valor: Mmax, x_mm: xMmax } = momentoMaximo(params);
-  const sigmaMax = esfuerzoFlexion(Math.abs(Mmax), c, Ix);
-  const { valor: deflexionActual, x_mm: xDeflexion } = deflexionMaxima(params, E, Ix);
-  const cercaDelLimite = cargaSegura / cargaMax > 0.85;
-
-  const diagramaV = useMemo(() => {
-    const pts: { x: number; y: number }[] = [];
-    for (let i = 0; i <= N_MUESTRAS_DIAGRAMA; i++) {
-      const x = (L * i) / N_MUESTRAS_DIAGRAMA;
-      pts.push({ x, y: cortante(Math.min(x, L - 1e-6), params) });
-    }
-    return pts;
-  }, [params, L]);
-  const diagramaM = useMemo(() => {
-    const pts: { x: number; y: number }[] = [];
-    for (let i = 0; i <= N_MUESTRAS_DIAGRAMA; i++) {
-      const x = (L * i) / N_MUESTRAS_DIAGRAMA;
-      pts.push({ x, y: momento(x, params) });
-    }
-    return pts;
-  }, [params, L]);
-  const vMax = Math.max(...diagramaV.map((p) => Math.abs(p.y)), 1);
-  const mMaxAbs = Math.max(...diagramaM.map((p) => Math.abs(p.y)), 1);
-
-  const curvaCargaDeflexion = useMemo(() => [{ x: 0, y: 0 }, { x: cargaMax, y: deflexionMaxima({ ...params, P_N: tipoCarga === 'puntual' ? cargaMax : undefined, w_N_mm: tipoCarga === 'distribuida' ? cargaMax : undefined }, E, Ix).valor }], [cargaMax, params, tipoCarga, E, Ix]);
-  const puntosGraficados = puntosRegistrados.map((carga) => {
-    const p2: ParametrosViga = tipoCarga === 'puntual' ? { ...params, P_N: carga } : { ...params, w_N_mm: carga };
-    return { x: carga, y: deflexionMaxima(p2, E, Ix).valor };
-  });
-
-  function registrarPunto() {
-    const opciones = () => ({ semillaEnsayo: sesion.semilla, indicePunto: sesion.mediciones.length, calibrado: calibradoDeflectometro });
-    const lecturas: Record<string, LecturaInstrumento> = {
-      deflexion: medir(deflexionActual, INSTRUMENTOS.comparadorDigital25mm, opciones()),
-    };
-    agregarMedicion(lecturas);
-    setPuntosRegistrados((arr) => [...arr, cargaSegura]);
-    setIndiceSeleccionado(sesion.mediciones.length);
+  function cambiarMaterial(id: string) {
+    m.acciones.nuevaProbeta(id);
   }
 
-  function manejarNuevaViga() {
-    reiniciarEnsayo();
-    setCargaAplicada(0);
-    setPuntosRegistrados([]);
-    setIndiceSeleccionado(0);
+  function iniciar() {
+    if (s.x === 0) sesionEnsayo.actualizarConfiguracion({ config, seccion, L_mm: L, I_mm4: I, velocidad_mm_min: velocidad, celdaCarga: celda.nombre });
+    m.acciones.iniciar();
   }
 
-  const cargaRef = puntosRegistrados[indiceSeleccionado];
-  const paramsRef: ParametrosViga | undefined = cargaRef !== undefined ? (tipoCarga === 'puntual' ? { ...params, P_N: cargaRef } : { ...params, w_N_mm: cargaRef }) : undefined;
-  const RizqRef = paramsRef ? reaccionIzquierda(paramsRef) : undefined;
-  const RderRef = paramsRef ? reaccionDerecha(paramsRef) : undefined;
-  const MmaxRef = paramsRef ? momentoMaximo(paramsRef).valor : undefined;
-  const sigmaMaxRef = paramsRef ? esfuerzoFlexion(Math.abs(MmaxRef!), c, Ix) : undefined;
-  const deflexionRef = paramsRef ? deflexionMaxima(paramsRef, E, Ix).valor : undefined;
-  const hayCalculo = sesion.calculosEstudiante.Rizq !== undefined || sesion.calculosEstudiante.Mmax !== undefined || sesion.calculosEstudiante.sigmaMax !== undefined || sesion.calculosEstudiante.deflexion !== undefined;
+  // ---------- Vista ----------
+
+  const enN = Pmax < 2000;
+  const fP = enN ? 1 : 1000;
+  const uP = enN ? 'N' : 'kN';
+  const Pleida = m.lecturaVivo?.fuerza.valor;
+  const flechaLeida = m.lecturaVivo?.flecha.valor;
+  const displayCarga = enMaquina ? textoLectura(Pleida, enN ? 1 : 3, fP) : '—';
+  const displayFlecha = enMaquina ? textoLectura(flechaLeida, 3) : '—';
+  const displayPico = m.pico === undefined ? '—' : fmt(m.pico / fP, enN ? 1 : 3);
+  const Mleido = typeof Pleida === 'number' ? momentoCentral(Pleida, L, config) : undefined;
+
+  const plastificacion = curva.deltaFluencia !== undefined && s.xMax > curva.deltaFluencia ? Math.min((s.xMax - curva.deltaFluencia) / (8 * curva.deltaFluencia), 1) : 0;
+  const kVis = Math.min(25, (0.12 * 300) / xFinal);
+  const altoViga = altoVisualViga(alto, L);
+
+  const regimen = (() => {
+    if (!montada) return '—';
+    if (retirada) return `Sin carga · flecha permanente ${fmt(s.x, 3)} mm`;
+    if (fracturada) return 'Rotura de la fibra traccionada (cara inferior, en el centro)';
+    if (s.x < s.xMax - 1e-9) return 'Descarga / recarga elástica';
+    if (curva.deltaFluencia === undefined) return 'Sin fluencia — comportamiento frágil';
+    if (s.x <= curva.deltaFluencia) return 'Elástico';
+    return 'Elastoplástico: la fluencia avanza de las fibras extremas al eje neutro';
+  })();
+
+  const textos = {
+    ...textosEstadoBase(m, `travesaño a ${fmt(velocidad, 1)} mm/min`, 'viga'),
+    retirada: `Viga retirada — quedó con una flecha permanente de ${fmt(s.x, 3)} mm. Vuelva a montarla o use «Nueva probeta»`,
+    finalizada: `Fin de recorrido (flecha L/10 = ${fmt(flechaRecorrido, 1)} mm): la viga dúctil se dobló sin romper. Descargue para retirarla`,
+    fracturada: 'Viga rota — la máquina detectó la caída de carga',
+  };
+
+  // Gráficos
+  const Pact = m.F;
+  const diagrama = (tipo: 'momento' | 'cortante'): PuntoXY[] => {
+    const pts: PuntoXY[] = [];
+    const xs = config === 'tres-puntos' ? [0, L / 2, L / 2, L] : [0, L / 3, L / 3, (2 * L) / 3, (2 * L) / 3, L];
+    if (tipo === 'momento') {
+      const Mc = momentoCentral(Pact, L, config) / 1000;
+      return config === 'tres-puntos' ? [{ x: 0, y: 0 }, { x: L / 2, y: Mc }, { x: L, y: 0 }] : [{ x: 0, y: 0 }, { x: L / 3, y: Mc }, { x: (2 * L) / 3, y: Mc }, { x: L, y: 0 }];
+    }
+    const V = Pact / 2 / fP;
+    const valores = config === 'tres-puntos' ? [V, V, -V, -V] : [V, V, 0, 0, -V, -V];
+    xs.forEach((x, i) => pts.push({ x, y: valores[i] }));
+    return pts;
+  };
+  const MmaxGrafico = Math.max(momentoCentral(Pmax, L, config) / 1000, 1e-6) * 1.15;
+  const VmaxGrafico = Math.max(Pmax / 2 / fP, 1e-6) * 1.2;
+
+  const traza = s.traza.map((p) => ({ x: p.x, y: p.F / fP }));
+  const referencia = [{ x: 0, y: 0 }, { x: Math.min((Pmax * 1.15) / k, xFinal * 1.08), y: Math.min(Pmax * 1.15, k * xFinal * 1.08) / fP }];
+  const regiones: RegionGrafico[] = [];
+  if (curva.deltaFluencia !== undefined) {
+    const tramos: RegionGrafico[] = [
+      { desde: 0, hasta: curva.deltaFluencia, nombre: 'Elástica', color: '#4f9dff' },
+      { desde: curva.deltaFluencia, hasta: xFinal, nombre: 'Elastoplástica', color: '#3ecf8e' },
+    ];
+    for (const r of tramos) if (r.desde < s.xMax) regiones.push({ ...r, hasta: Math.min(r.hasta, s.xMax) });
+  } else if (s.xMax > 0) {
+    regiones.push({ desde: 0, hasta: s.xMax, nombre: 'Sin fluencia (frágil)', color: '#4f9dff' });
+  }
+  const puntosClave: PuntoClave[] = [];
+  if (curva.PFluencia !== undefined && curva.deltaFluencia !== undefined && s.xMax >= curva.deltaFluencia)
+    puntosClave.push({ x: curva.deltaFluencia, y: curva.PFluencia / fP, etiqueta: `Py = ${fmt(curva.PFluencia / fP, enN ? 0 : 2)} ${uP}`, color: '#f0b429' });
+  if (fracturada) puntosClave.push({ x: curva.deltaRotura, y: curva.PRotura / fP, etiqueta: 'Rotura', color: '#ff5c5c' });
+  if (estado === 'finalizada') puntosClave.push({ x: s.x, y: m.F / fP, etiqueta: 'Fin del ensayo', color: '#a9bdd1' });
+
+  let energia = 0;
+  for (let i = 1; i < s.traza.length; i++) energia += ((s.traza[i].F + s.traza[i - 1].F) / 2) * (s.traza[i].x - s.traza[i - 1].x);
+
+  const cargas = sesion.mediciones.map((med) => med.lecturas.fuerza?.valor).filter((v): v is number => typeof v === 'number');
+  const PmaxMedida = cargas.length ? Math.max(...cargas) : 0;
+
+  const puntoSel = m.seleccion !== null ? s.verdaderos[m.seleccion] : undefined;
+  const medSel = m.seleccion !== null ? sesion.mediciones[m.seleccion] : undefined;
+  const elasticoSel = puntoSel !== undefined && puntoSel.F > 0 && Math.abs(puntoSel.F - k * puntoSel.x) <= 0.03 * puntoSel.F;
+  const calc = sesion.calculosEstudiante;
+  const hayCalculo = ['Mmax', 'sigmaMax', 'E'].some((v) => calc[v] !== undefined);
+  const pasoActual = estado === 'desmontada' ? 2 : terminado ? 4 : 3;
+  const formulaE = config === 'tres-puntos' ? 'E = P·L³/(48·I·δ)' : 'E = 23·P·L³/(1296·I·δ)';
+  const formulaM = config === 'tres-puntos' ? 'M = P·L/4' : 'M = P·L/6';
 
   return (
-    <div>
+    <div className="lab">
       <div className="topbar">
         <div>
-          <div className="titulo">Banco 3 — Flexión de vigas</div>
-          <div className="subtitulo">Configure la viga, aplique carga y observe reacciones, diagramas V-M y deflexión en tiempo real.</div>
+          <div className="titulo">Banco 3 — Ensayo de flexión</div>
+          <div className="subtitulo">Flexión en 3 o 4 puntos en la máquina universal, con control por desplazamiento, curva carga–flecha y diagramas V(x) y M(x).</div>
         </div>
         <button className="volver" onClick={onVolver}>← Volver al catálogo</button>
       </div>
 
-      <div className="banco-grid">
-        <div className="zona-a panel">
-          <div className="zona-etiqueta">Zona A · Configuración</div>
-          <MaterialSelector materialId={sesion.materialId} onChange={setMaterial} soloIsotropicos />
+      <BarraPasos pasos={['Material', 'Geometría', 'Montaje', 'Ensayo', 'Resultados']} actual={pasoActual} />
 
-          <div className="campo">
-            <label>Condición de apoyo</label>
-            <select value={apoyo} onChange={(e) => setApoyo(e.target.value as ApoyoViga)}>
-              <option value="simple">Simplemente apoyada</option>
-              <option value="voladizo">En voladizo (empotrada-libre)</option>
-            </select>
-          </div>
-          <div className="campo">
-            <label>Tipo de carga</label>
-            <select value={tipoCarga} onChange={(e) => setTipoCarga(e.target.value as TipoCargaViga)}>
-              <option value="puntual">Puntual{apoyo === 'voladizo' ? ' (en el extremo libre)' : ''}</option>
-              <option value="distribuida">Uniformemente distribuida</option>
-            </select>
-          </div>
-          {tipoCarga === 'puntual' && apoyo === 'simple' && (
-            <div className="campo">
-              <label>Posición de la carga a (mm), desde el apoyo izquierdo</label>
-              <input type="number" value={aMm} min={1} max={L - 1} onChange={(e) => setAMm(Number(e.target.value))} />
-            </div>
-          )}
-          <div className="campo">
-            <label>Tipo de sección</label>
-            <select value={tipoSeccion} onChange={(e) => setTipoSeccion(e.target.value as TipoSeccionLocal)}>
-              <option value="rectangular">Rectangular</option>
-              <option value="circular">Circular maciza</option>
-            </select>
-          </div>
-          {tipoSeccion === 'circular' ? (
-            <div className="campo">
-              <label>Diámetro d (mm)</label>
-              <input type="number" value={d} min={5} max={100} onChange={(e) => setD(Number(e.target.value))} />
-            </div>
-          ) : (
-            <div className="fila campo">
-              <div><label>Base b (mm)</label><input type="number" value={b} min={5} max={150} onChange={(e) => setB(Number(e.target.value))} /></div>
-              <div><label>Altura h (mm)</label><input type="number" value={h} min={5} max={200} onChange={(e) => setH(Number(e.target.value))} /></div>
-            </div>
-          )}
-          <div className="campo">
-            <label>Longitud del claro L (mm)</label>
-            <input type="number" value={L} min={200} max={5000} onChange={(e) => setL(Number(e.target.value))} />
-          </div>
-
-          <hr className="separador" />
-          <p className="nota">Ix = {Ix.toExponential(3)} mm⁴ · c = {c.toFixed(1)} mm</p>
-          <p className="nota">Carga máx. de ensayo: {cargaMax.toFixed(2)} {tipoCarga === 'puntual' ? 'N' : 'N/mm'}</p>
-          <p className="nota">
-            {sigmaY !== undefined
-              ? `Límite estimado por fluencia: σY ≈ ${sigmaY.toFixed(0)} MPa (ensayo limitado al 95% de ese valor).`
-              : 'Sin dato de fluencia: la carga se limita por una deflexión de servicio L/200 (criterio conservador).'}
-          </p>
-        </div>
-
-        <div className="zona-b panel">
-          <div className="zona-etiqueta">Zona B · Banco de ensayo</div>
-          <BendingSVG
-            apoyo={apoyo}
-            tipoCarga={tipoCarga}
-            L_mm={L}
-            a_mm={aValida}
-            deflexionMax_mm={deflexionActual}
-            amplificacion={AMPLIFICACION_VISUAL}
-            cercaDelLimite={cercaDelLimite}
+      <div className="lab-grid">
+        <section className="lab-panel">
+          <div className="lab-panel-titulo">Máquina universal de ensayos</div>
+          <MarcoMaquinaSVG
+            ariaLabel="Máquina universal de ensayos con utillaje de flexión"
+            yTravesano={yTravesanoFlexion(altoViga, Math.min(kVis * s.x, 60), config, enMaquina)}
+            colorProbeta={COLORES_PROBETA[material.categoria]}
+            displayCarga={displayCarga}
+            displayPico={displayPico}
+            unidad={uP}
+            enMarcha={m.enMovimiento}
+            onParadaEmergencia={() => m.enMovimiento && m.acciones.pausar()}
+          >
+            <MontajeFlexionSVG
+              config={config}
+              altoViga={altoViga}
+              flechaVisual={Math.min(kVis * s.x, 60)}
+              plastificacion={plastificacion}
+              fracturada={fracturada}
+              probetaVisible={!retirada}
+              enContacto={enMaquina}
+              circular={tipoSeccion === 'circular'}
+              cotas={[`δ = ${fmt(s.x, 3)} mm`, `L = ${fmt(L, 0)} mm`, tipoSeccion === 'rectangular' ? `${fmt(b, 1)} × ${fmt(h, 1)}` : `Ø ${fmt(d, 1)}`]}
+            />
+          </MarcoMaquinaSVG>
+          <LineaEstado
+            m={m}
+            textos={textos}
+            regimen={regimen}
+            detalle={<>Reacciones R = P/2 = {fmt(m.F / 2 / fP, enN ? 1 : 3)} {uP} · t = {fmt(s.t, 1)} s{kVis > 1.05 ? ` · escala gráfica de la flecha ×${fmt(kVis, 1)}` : ''}</>}
           />
-        </div>
+        </section>
 
-        <div className="zona-c panel">
-          <div className="zona-etiqueta">Zona C · Instrumentación y control</div>
-          <div className="fila campo">
-            <button onClick={() => setCalibradoDeflectometro(true)} disabled={calibradoDeflectometro}>Cero: deflectómetro</button>
+        <section className="lab-panel panel-columna">
+          <div className="lab-panel-titulo">Gráficos</div>
+          <Segmentado<VistaGrafico>
+            opciones={[{ valor: 'carga', etiqueta: 'Carga–flecha' }, { valor: 'momento', etiqueta: 'Momento M(x)' }, { valor: 'cortante', etiqueta: 'Cortante V(x)' }]}
+            valor={vista}
+            onChange={setVista}
+          />
+          <div style={{ marginTop: 8 }}>
+            {vista === 'carga' && (
+              <GraficoEnsayo
+                id={ID_GRAFICO}
+                titulo="Curva carga–flecha"
+                subtitulo={`${material.nombre} — flexión en ${config === 'tres-puntos' ? '3' : '4'} puntos, L = ${fmt(L, 0)} mm`}
+                xEtiqueta="Flecha en el centro δ (mm)"
+                yEtiqueta={`Carga P (${uP})`}
+                xMax={xFinal * 1.08}
+                yMax={(Pmax / fP) * 1.15}
+                traza={traza}
+                referencia={referencia}
+                regiones={regiones}
+                puntosClave={puntosClave}
+                energia={energia / 1000}
+                unidadEnergia="J"
+                puntoActual={montada ? { x: s.x, y: m.F / fP, fracturado: fracturada } : undefined}
+                registrados={s.verdaderos.filter((p) => p.manual).map((p) => ({ x: p.x, y: p.F / fP }))}
+                opciones={opciones}
+              />
+            )}
+            {vista === 'momento' && (
+              <GraficoEnsayo
+                id={ID_GRAFICO}
+                titulo="Diagrama de momento flector M(x)"
+                subtitulo={`Carga actual P = ${fmt(Pact / fP, enN ? 1 : 3)} ${uP} · ${formulaM}`}
+                xEtiqueta="Posición x desde el apoyo izquierdo (mm)"
+                yEtiqueta="Momento M (N·m)"
+                xMax={L}
+                yMax={MmaxGrafico}
+                traza={diagrama('momento')}
+                puntosClave={Pact > 0 ? [{ x: L / 2, y: momentoCentral(Pact, L, config) / 1000, etiqueta: `Mmáx = ${fmt(momentoCentral(Pact, L, config) / 1000, 2)} N·m`, color: '#f0b429' }] : []}
+                opciones={{ ...opciones, regiones: false, energia: false, teorica: false }}
+                decimalesX={0}
+              />
+            )}
+            {vista === 'cortante' && (
+              <GraficoEnsayo
+                id={ID_GRAFICO}
+                titulo="Diagrama de fuerza cortante V(x)"
+                subtitulo={`Carga actual P = ${fmt(Pact / fP, enN ? 1 : 3)} ${uP} · V = ±P/2`}
+                xEtiqueta="Posición x desde el apoyo izquierdo (mm)"
+                yEtiqueta={`Cortante V (${uP})`}
+                xMax={L}
+                yMax={VmaxGrafico}
+                yMin={-VmaxGrafico}
+                traza={diagrama('cortante')}
+                opciones={{ ...opciones, regiones: false, energia: false, teorica: false, puntos: false }}
+                decimalesX={0}
+              />
+            )}
           </div>
-          <div className="campo">
-            <label>Carga aplicada {tipoCarga === 'puntual' ? 'P' : 'w'} = {cargaSegura.toFixed(2)} {tipoCarga === 'puntual' ? 'N' : 'N/mm'} (máx.: {cargaMax.toFixed(2)})</label>
-            <div className="control-paso">
-              <button className="boton-paso" onClick={() => setCargaAplicada((v) => Math.max(v - pasoCarga, 0))} disabled={cargaAplicada <= 0} aria-label="Disminuir carga">−</button>
-              <input type="range" min={0} max={cargaMax} step={pasoCarga} value={cargaAplicada} onChange={(e) => setCargaAplicada(Number(e.target.value))} />
-              <button className="boton-paso" onClick={() => setCargaAplicada((v) => Math.min(v + pasoCarga, cargaMax))} disabled={cargaAplicada >= cargaMax} aria-label="Aumentar carga">+</button>
-            </div>
-          </div>
-          <LecturasPanel
-            lecturas={[
-              { etiqueta: 'Reacción izq.', valor: Rizq.toFixed(1), unidad: 'N' },
-              { etiqueta: 'Reacción der.', valor: Rder.toFixed(1), unidad: 'N' },
-              { etiqueta: 'Momento máx.', valor: (Mmax / 1000).toFixed(3), unidad: 'N·m' },
-              { etiqueta: 'σ máximo', valor: sigmaMax.toFixed(2), unidad: 'MPa' },
-              { etiqueta: 'Deflexión', valor: deflexionActual.toFixed(4), unidad: 'mm' },
+          {vista === 'carga' && (
+            <CasillasGrafico opciones={opciones} setOpciones={setOpciones} claves={['etiquetas', 'puntos', 'regiones', 'energia', 'cuadricula', 'teorica']} nombres={{ teorica: 'Recta elástica' }} />
+          )}
+          <DisplayDigital
+            items={[
+              { etiqueta: 'Carga', valor: displayCarga, unidad: uP, alerta: displayCarga === 'OVL' },
+              { etiqueta: 'Flecha', valor: displayFlecha, unidad: 'mm', alerta: displayFlecha === 'OVL' },
+              { etiqueta: 'Mmáx', valor: Mleido !== undefined ? fmt(Mleido / 1000, 2) : '—', unidad: 'N·m' },
+              { etiqueta: 'σ = M·c/I', valor: Mleido !== undefined ? fmt((Mleido * c) / I, 1) : '—', unidad: 'MPa (elástica)' },
             ]}
           />
-          <p className="nota">Deflexión de referencia evaluada en x = {xDeflexion.toFixed(0)} mm · Mmax en x = {xMmax.toFixed(0)} mm.</p>
-          <div className="fila campo">
-            <button className="primario" onClick={registrarPunto}>Registrar punto</button>
-            <button onClick={manejarNuevaViga}>Nueva viga</button>
-          </div>
-        </div>
+          <MandosMaquina m={{ ...m, acciones: { ...m.acciones, iniciar } }} nombre="viga" />
+          <TablaDatosVivo
+            m={m}
+            columnas={[
+              { titulo: `Carga (${uP})`, valor: (med) => textoLectura(med.lecturas.fuerza?.valor, enN ? 1 : 3, fP) },
+              { titulo: 'Flecha (mm)', valor: (med) => textoLectura(med.lecturas.flecha?.valor, 3) },
+            ]}
+          />
+        </section>
+      </div>
 
-        <div className="zona-d panel">
-          <div className="zona-etiqueta">Zona D · Datos y análisis</div>
-
-          <label className="fila" style={{ alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" style={{ width: 'auto' }} checked={mostrarDiagramas} onChange={(e) => setMostrarDiagramas(e.target.checked)} />
-            <span style={{ flex: 'none' }}>Mostrar diagramas V(x) y M(x)</span>
-          </label>
-          {mostrarDiagramas && (
-            <>
-              <GraficoXY curva={diagramaV} xMax={L} yMax={vMax * 1.15} xLabel="x (mm)" yLabel="V (N)" />
-              <GraficoXY curva={diagramaM} xMax={L} yMax={mMaxAbs * 1.15} xLabel="x (mm)" yLabel="M (N·mm)" colorCurva="#b3541e" />
-            </>
-          )}
-
-          <label className="fila" style={{ alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" style={{ width: 'auto' }} checked={mostrarGraficoCargaDeflexion} onChange={(e) => setMostrarGraficoCargaDeflexion(e.target.checked)} />
-            <span style={{ flex: 'none' }}>Mostrar gráfico carga-deflexión</span>
-          </label>
-          {mostrarGraficoCargaDeflexion && (
-            <GraficoXY
-              curva={curvaCargaDeflexion}
-              puntoActual={{ x: cargaSegura, y: deflexionActual }}
-              puntosRegistrados={puntosGraficados}
-              xMax={cargaMax}
-              yMax={Math.max(curvaCargaDeflexion[1].y, 0.01)}
-              xLabel={tipoCarga === 'puntual' ? 'P (N)' : 'w (N/mm)'}
-              yLabel="δ (mm)"
+      <div className="lab-grid">
+        <section className="lab-panel">
+          <div className="lab-panel-titulo">Configuración del ensayo</div>
+          <ControlesMovimiento
+            m={m}
+            velocidad={velocidad}
+            setVelocidad={setVelocidad}
+            unidadVelocidad="mm/min"
+            unidadJog="mm"
+            velocidadMin={0.1}
+            velocidadMax={50}
+            pasosJog={['0.001', '0.01', '0.1', '1']}
+            pasoJog={pasoJog}
+            setPasoJog={setPasoJog}
+            jogAX={(mm) => mm}
+          >
+            <Segmentado
+              etiqueta="Ensayo"
+              opciones={[{ valor: 'tres-puntos', etiqueta: '3 puntos' }, { valor: 'cuatro-puntos', etiqueta: '4 puntos' }]}
+              valor={config}
+              onChange={setConfig}
+              disabled={montada}
             />
-          )}
+            <Segmentado
+              etiqueta="Sección"
+              opciones={[{ valor: 'rectangular', etiqueta: 'Rectangular' }, { valor: 'circular', etiqueta: 'Circular' }]}
+              valor={tipoSeccion}
+              onChange={setTipoSeccion}
+              disabled={montada}
+            />
+            {tipoSeccion === 'rectangular' ? (
+              <>
+                <Stepper etiqueta="Ancho b (mm)" valor={b} onChange={setB} min={5} max={50} paso={1} decimales={0} disabled={montada} />
+                <Stepper etiqueta="Altura h (mm)" valor={h} onChange={setH} min={3} max={30} paso={1} decimales={0} disabled={montada} />
+              </>
+            ) : (
+              <Stepper etiqueta="Diámetro d (mm)" valor={d} onChange={setD} min={4} max={30} paso={1} decimales={0} disabled={montada} />
+            )}
+            <Stepper etiqueta="Claro entre apoyos L (mm)" valor={L} onChange={setL} min={60} max={600} paso={10} decimales={0} disabled={montada} />
+          </ControlesMovimiento>
+          <p className="nota">
+            I = {fmt(I, 1)} mm⁴ · c = {fmt(c, 1)} mm · L/h = {fmt(L / alto, 1)} · {celda.nombre} · deflectómetro (±25 mm) · probetas usadas: {m.probetasUsadas}.
+          </p>
+          {L / alto < 8 && <p className="advertencia">Viga corta (L/h &lt; 8): la deformación por cortante deja de ser despreciable y la flecha real será mayor que la de la teoría de Euler–Bernoulli.</p>}
+        </section>
 
-          <hr className="separador" />
-          <h3>Mediciones registradas ({sesion.mediciones.length})</h3>
-          {sesion.mediciones.length === 0 ? (
-            <p className="nota">Aplique carga en la Zona C y presione «Registrar punto» para ir guardando datos.</p>
+        <section className="lab-panel">
+          <div className="lab-panel-titulo">Material de la viga</div>
+          <ChipsMaterial materialId={sesion.materialId} onChange={cambiarMaterial} disabled={montada} soloIsotropicos />
+          {montada && <p className="nota">Para cambiar material o geometría, desmonte la viga o use «Nueva probeta».</p>}
+          <details className="ficha-desplegable">
+            <summary>Ficha técnica del material</summary>
+            <FichaMaterial material={material} />
+          </details>
+          <BotonesExportar m={m} idGrafico={ID_GRAFICO} nombrePng={`flexion-${vista}-${sesion.materialId}.png`} />
+        </section>
+      </div>
+
+      <div className="lab-grid">
+        <section className="lab-panel">
+          <div className="lab-panel-titulo">Calcule y compare</div>
+          {!puntoSel || !medSel ? (
+            <p className="nota">Seleccione una fila de la tabla. Calcule {formulaM} y σ = M·c/I; en un punto elástico también {formulaE}.</p>
           ) : (
-            <table className="tabla-datos">
-              <thead><tr><th>#</th><th>Carga</th><th>Deflexión (mm)</th></tr></thead>
-              <tbody>
-                {sesion.mediciones.map((p, i) => (
-                  <tr key={p.id} onClick={() => setIndiceSeleccionado(i)} style={{ cursor: 'pointer', background: i === indiceSeleccionado ? '#eaf1f7' : undefined }}>
-                    <td>{i}</td>
-                    <td>{puntosRegistrados[i]?.toFixed(2) ?? '—'}</td>
-                    <td>{p.lecturas.deflexion.valor ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          {sesion.mediciones.length > 0 && (
             <>
-              <hr className="separador" />
-              <h3>Calcule y compare</h3>
-              <div className="campo">
-                <label>Punto a analizar</label>
-                <select value={indiceSeleccionado} onChange={(e) => setIndiceSeleccionado(Number(e.target.value))}>
-                  {sesion.mediciones.map((_, i) => <option key={i} value={i}>Punto {i}</option>)}
-                </select>
-              </div>
+              <p className="nota">
+                Punto {m.seleccion! + 1}: P = {textoLectura(medSel.lecturas.fuerza?.valor, 1)} N · δ = {textoLectura(medSel.lecturas.flecha?.valor, 3)} mm · L = {fmt(L, 0)} mm · I = {fmt(I, 1)} mm⁴ · c = {fmt(c, 1)} mm
+                {elasticoSel ? ' · punto en zona elástica' : ' · fuera de la zona elástica: σ = M·c/I y E no aplican (la sección ya fluye)'}
+              </p>
               <div className="fila campo">
-                <div><label>R izq. calculada (N)</label><input type="number" value={sesion.calculosEstudiante.Rizq ?? ''} onChange={(e) => registrarCalculo('Rizq', Number(e.target.value))} /></div>
-                <div><label>Mmax calculado (N·mm)</label><input type="number" value={sesion.calculosEstudiante.Mmax ?? ''} onChange={(e) => registrarCalculo('Mmax', Number(e.target.value))} /></div>
+                <div><label>Mmáx calculado (N·mm)</label><input type="number" value={calc.Mmax ?? ''} onChange={(e) => sesionEnsayo.registrarCalculo('Mmax', Number(e.target.value))} /></div>
+                {elasticoSel && <div><label>σmáx calculado (MPa)</label><input type="number" value={calc.sigmaMax ?? ''} onChange={(e) => sesionEnsayo.registrarCalculo('sigmaMax', Number(e.target.value))} /></div>}
               </div>
-              <div className="fila campo">
-                <div><label>σ máx. calculado (MPa)</label><input type="number" value={sesion.calculosEstudiante.sigmaMax ?? ''} onChange={(e) => registrarCalculo('sigmaMax', Number(e.target.value))} /></div>
-                <div><label>δ calculada (mm)</label><input type="number" value={sesion.calculosEstudiante.deflexion ?? ''} onChange={(e) => registrarCalculo('deflexion', Number(e.target.value))} /></div>
-              </div>
-
-              {hayCalculo && RizqRef !== undefined && MmaxRef !== undefined && sigmaMaxRef !== undefined && deflexionRef !== undefined && (
+              {elasticoSel && (
+                <div className="fila campo">
+                  <div><label>E calculado (MPa)</label><input type="number" value={calc.E ?? ''} onChange={(e) => sesionEnsayo.registrarCalculo('E', Number(e.target.value))} /></div>
+                </div>
+              )}
+              {hayCalculo && (
                 <TablaValidacion>
-                  <FilaValidacion etiqueta="Reacción izquierda (o en el empotramiento)" valorEstudiante={sesion.calculosEstudiante.Rizq} valorReferencia={RizqRef} unidad="N" />
-                  <FilaValidacion etiqueta="Momento máximo" valorEstudiante={sesion.calculosEstudiante.Mmax} valorReferencia={MmaxRef} unidad="N·mm" />
-                  <FilaValidacion etiqueta="σ máximo" valorEstudiante={sesion.calculosEstudiante.sigmaMax} valorReferencia={sigmaMaxRef} unidad="MPa" />
-                  <FilaValidacion etiqueta="Deflexión" valorEstudiante={sesion.calculosEstudiante.deflexion} valorReferencia={deflexionRef} unidad="mm" />
+                  <FilaValidacion etiqueta="Mmáx (momento en el centro)" valorEstudiante={calc.Mmax} valorReferencia={momentoCentral(puntoSel.F, L, config)} unidad="N·mm" />
+                  {elasticoSel && <FilaValidacion etiqueta="σmáx (fibra extrema)" valorEstudiante={calc.sigmaMax} valorReferencia={(momentoCentral(puntoSel.F, L, config) * c) / I} unidad="MPa" />}
+                  {elasticoSel && <FilaValidacion etiqueta="E (módulo de Young)" valorEstudiante={calc.E} valorReferencia={E} unidad="MPa" />}
                 </TablaValidacion>
               )}
-              {apoyo === 'simple' && RderRef !== undefined && (
-                <p className="nota">Reacción derecha de referencia: {RderRef.toFixed(1)} N.</p>
-              )}
             </>
           )}
+        </section>
 
-          <hr className="separador" />
-          <h3>Notas</h3>
+        <section className="lab-panel">
+          {terminado && (
+            <>
+              <div className="lab-panel-titulo">Resumen del ensayo</div>
+              <div className="resumen-ensayo">
+                <ResumenItem etiqueta="Carga máxima medida" valor={`${fmt(PmaxMedida / fP, enN ? 1 : 3)} ${uP}`} />
+                <ResumenItem etiqueta="Carga de primera fluencia Py" valor={curva.PFluencia !== undefined ? `${fmt(curva.PFluencia / fP, enN ? 1 : 3)} ${uP}` : 'No aplica (frágil)'} />
+                <ResumenItem
+                  etiqueta={fracturada ? 'Módulo de rotura σ = Mmáx·c/I' : 'σ aparente al final = Mmáx·c/I'}
+                  valor={`${fmt((momentoCentral(PmaxMedida, L, config) * c) / I, 1)} MPa`}
+                />
+                <ResumenItem etiqueta="Flecha máxima" valor={`${fmt(s.xMax, 2)} mm`} />
+                <ResumenItem etiqueta="Rigidez elástica P/δ" valor={`${fmt(k, 1)} N/mm`} />
+                <ResumenItem etiqueta="Energía absorbida ∫P·dδ" valor={`${fmt(energia / 1000, 2)} J`} />
+              </div>
+              <p className="nota">
+                {ductil
+                  ? 'La sección plastificada resiste más de lo que predice M·c/I con σY: en una sección rectangular el momento plástico es 1,5 veces el de primera fluencia (factor de forma).'
+                  : 'En un material frágil el módulo de rotura en flexión suele ser mayor que su resistencia a tracción: solo la fibra extrema llega a σU.'}
+              </p>
+              <hr className="separador" />
+            </>
+          )}
+          <div className="lab-panel-titulo">Notas</div>
           <textarea
-            rows={5}
+            rows={4}
             value={sesion.conclusiones}
-            onChange={(e) => registrarConclusiones(e.target.value)}
-            placeholder="Efecto de la condición de apoyo y del tipo de carga sobre el momento máximo y la deflexión, margen de seguridad…"
+            onChange={(e) => sesionEnsayo.registrarConclusiones(e.target.value)}
+            placeholder="3 frente a 4 puntos (zona de momento constante), factor de forma, E medido por flexión, flecha permanente…"
           />
-
-          <hr className="separador" />
-          <div className="fila">
-            <button onClick={() => exportarMedicionesCSV(sesion)} disabled={sesion.mediciones.length === 0}>Exportar CSV</button>
-            <button onClick={() => exportarSesionJSON(sesion)}>Exportar JSON</button>
-            <button onClick={() => window.print()}>Imprimir</button>
-          </div>
-        </div>
+        </section>
       </div>
     </div>
   );
