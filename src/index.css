@@ -135,6 +135,9 @@ select, input[type="number"], input[type="text"], textarea {
 .fila { display: flex; gap: 8px; align-items: center; }
 .fila > * { flex: 1; }
 
+.selector-modo { flex: none !important; display: flex; gap: 2px; }
+.selector-modo button { flex: none; padding: 3px 10px; font-size: 12px; border-radius: 999px; }
+
 .control-paso { display: flex; gap: 6px; align-items: center; }
 .control-paso input[type="range"] { flex: 1; }
 .boton-paso {

@@ -20,6 +20,7 @@ import type { LecturaInstrumento } from '../../engine/types';
 const AMPLIFICACION_VISUAL = 25;
 
 type TipoSeccionLocal = 'circular' | 'rectangular';
+type ModoControl = 'epsilon' | 'mm';
 
 function limiteDeformacion(materialId: string): number {
   const m = obtenerMaterial(materialId);
@@ -61,6 +62,7 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
   const [indiceSeleccionado, setIndiceSeleccionado] = useState(0);
   const [probetasUsadas, setProbetasUsadas] = useState(1);
   const [pPredicho, setPPredicho] = useState(5000);
+  const [modoControl, setModoControl] = useState<ModoControl>('epsilon');
 
   const material = obtenerMaterial(sesion.materialId)!;
 
@@ -83,6 +85,8 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
   const acortamientoActual = epsilonObjetivo * L;
   const pasoSlider = limiteEps / 500;
   const progresoEnsayo = limiteEps > 0 ? epsilonObjetivo / limiteEps : 0;
+  const maxMm = limiteEps * L;
+  const pasoSliderMm = pasoSlider * L;
 
   const sigmaMaxPosible = esfuerzoEnDeformacion(material, limiteEps) ?? material.propiedades.sigmaU_MPa ?? material.propiedades.sigmaY_MPa ?? (material.propiedades.E_MPa ?? 200000) * limiteEps;
   const celdaCarga = elegirCeldaCarga(sigmaMaxPosible * A);
@@ -231,21 +235,59 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
             <button onClick={() => setCalibradoExtensometro(true)} disabled={calibradoExtensometro}>Cero: extensómetro</button>
           </div>
           <div className="campo">
-            <label>Deformación controlada ε = {epsilonObjetivo.toFixed(5)} (máx. admitido en este ensayo: {limiteEps.toFixed(4)})</label>
+            <div className="fila" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <label style={{ marginBottom: 0 }}>
+                {modoControl === 'epsilon'
+                  ? <>Deformación controlada ε = {epsilonObjetivo.toFixed(5)} (máx.: {limiteEps.toFixed(4)})</>
+                  : <>Acortamiento controlado ΔL = {acortamientoActual.toFixed(4)} mm (máx.: {maxMm.toFixed(4)} mm)</>}
+              </label>
+              <div className="selector-modo" role="group" aria-label="Unidad de control">
+                <button
+                  className={modoControl === 'epsilon' ? 'primario' : ''}
+                  onClick={() => setModoControl('epsilon')}
+                  disabled={sesion.probetaDestruida}
+                >
+                  ε
+                </button>
+                <button
+                  className={modoControl === 'mm' ? 'primario' : ''}
+                  onClick={() => setModoControl('mm')}
+                  disabled={sesion.probetaDestruida}
+                >
+                  mm
+                </button>
+              </div>
+            </div>
             <div className="control-paso">
               <button className="boton-paso" onClick={() => ajustarPaso(-1)} disabled={sesion.probetaDestruida || epsilonObjetivo <= 0} aria-label="Disminuir deformación">−</button>
-              <input
-                type="range"
-                min={0}
-                max={limiteEps}
-                step={pasoSlider}
-                value={epsilonObjetivo}
-                onChange={(e) => manejarSlider(Number(e.target.value))}
-                disabled={sesion.probetaDestruida}
-              />
+              {modoControl === 'epsilon' ? (
+                <input
+                  type="range"
+                  min={0}
+                  max={limiteEps}
+                  step={pasoSlider}
+                  value={epsilonObjetivo}
+                  onChange={(e) => manejarSlider(Number(e.target.value))}
+                  disabled={sesion.probetaDestruida}
+                />
+              ) : (
+                <input
+                  type="range"
+                  min={0}
+                  max={maxMm}
+                  step={pasoSliderMm}
+                  value={acortamientoActual}
+                  onChange={(e) => manejarSlider(Number(e.target.value) / L)}
+                  disabled={sesion.probetaDestruida}
+                />
+              )}
               <button className="boton-paso" onClick={() => ajustarPaso(1)} disabled={sesion.probetaDestruida || epsilonObjetivo >= limiteEps} aria-label="Aumentar deformación">+</button>
             </div>
-            <p className="nota">Cada clic en − / + aplica un paso fino de Δε = {pasoSlider.toFixed(6)}, para ajustar la carga con precisión.</p>
+            <p className="nota">
+              {modoControl === 'epsilon'
+                ? <>Cada clic en − / + aplica un paso fino de Δε = {pasoSlider.toFixed(6)}.</>
+                : <>Cada clic en − / + aplica un paso fino de ΔL = {pasoSliderMm.toFixed(5)} mm (equivale a Δε = {pasoSlider.toFixed(6)}).</>}
+            </p>
           </div>
 
           <p className="nota">Lecturas instantáneas (valor verdadero, antes de instrumentar):</p>
