@@ -1,7 +1,10 @@
 import type { CondicionApoyo } from '../../engine/mechanics/buckling';
+import { ComparadorDial } from '../../components/svg/ComparadorDial';
 
 interface Props {
   deflexion_mm: number;
+  /** Progreso de la aguja del comparador en [0,1], relativo a la deflexión máxima de referencia del ensayo actual (NO a la carga: así la aguja nunca se mueve si la deflexión real es cero, p. ej. columna perfecta). */
+  progresoComparador: number;
   amplificacion: number;
   condicion: CondicionApoyo;
   cercaDeCritica: boolean;
@@ -21,7 +24,7 @@ function formaModo(condicion: CondicionApoyo, t: number): number {
   }
 }
 
-export function BucklingSVG({ deflexion_mm, amplificacion, condicion, cercaDeCritica }: Props) {
+export function BucklingSVG({ deflexion_mm, progresoComparador, amplificacion, condicion, cercaDeCritica }: Props) {
   const topY = 40;
   const bottomY = 320;
   const alto = bottomY - topY;
@@ -41,33 +44,54 @@ export function BucklingSVG({ deflexion_mm, amplificacion, condicion, cercaDeCri
   const esEmpotradoArriba = condicion === 'empotrado-empotrado';
   const esLibreArriba = condicion === 'empotrado-libre';
 
-  const color = cercaDeCritica ? '#ab2d2d' : '#1d5a8a';
+  const colorId = cercaDeCritica ? 'columnaCritica' : 'columnaNormal';
 
   return (
     <svg viewBox="0 0 300 380" width="100%" height="320" role="img" aria-label="Banco de pandeo de columnas">
+      <defs>
+        <linearGradient id="columnaNormal" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#2d74a8" />
+          <stop offset="100%" stopColor="#123f61" />
+        </linearGradient>
+        <linearGradient id="columnaCritica" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#d14545" />
+          <stop offset="100%" stopColor="#7a1818" />
+        </linearGradient>
+        <linearGradient id="apoyoFijo" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#4a5663" />
+          <stop offset="100%" stopColor="#2c3742" />
+        </linearGradient>
+        <radialGradient id="apoyoPasador" cx="35%" cy="30%" r="75%">
+          <stop offset="0%" stopColor="#c3ccd4" />
+          <stop offset="100%" stopColor="#6b7a88" />
+        </radialGradient>
+        <filter id="sombraColumna" x="-30%" y="-10%" width="160%" height="120%">
+          <feDropShadow dx="0" dy="1.5" stdDeviation="2.5" floodColor="#1f2a33" floodOpacity="0.22" />
+        </filter>
+      </defs>
+
       {/* Apoyo inferior */}
       {esEmpotradoAbajo ? (
-        <rect x={110} y={bottomY} width={80} height={14} fill="#334455" />
+        <rect x={110} y={bottomY} width={80} height={14} rx={3} fill="url(#apoyoFijo)" />
       ) : (
-        <circle cx={xCentro} cy={bottomY + 6} r={8} fill="#8a97a3" />
+        <circle cx={xCentro} cy={bottomY + 6} r={8} fill="url(#apoyoPasador)" stroke="#4a5663" strokeWidth={1} />
       )}
-      <line x1={60} y1={bottomY + 14} x2={240} y2={bottomY + 14} stroke="#5b6b78" strokeWidth={3} />
+      <line x1={60} y1={bottomY + 14} x2={240} y2={bottomY + 14} stroke="#5b6b78" strokeWidth={3} strokeLinecap="round" />
 
       {/* Apoyo superior */}
-      {esEmpotradoArriba && <rect x={110} y={topY - 14} width={80} height={14} fill="#334455" />}
-      {!esEmpotradoArriba && !esLibreArriba && <circle cx={xCentro} cy={topY - 6} r={8} fill="#8a97a3" />}
-      {!esLibreArriba && <line x1={60} y1={topY - 14} x2={240} y2={topY - 14} stroke="#5b6b78" strokeWidth={3} />}
+      {esEmpotradoArriba && <rect x={110} y={topY - 14} width={80} height={14} rx={3} fill="url(#apoyoFijo)" />}
+      {!esEmpotradoArriba && !esLibreArriba && <circle cx={xCentro} cy={topY - 6} r={8} fill="url(#apoyoPasador)" stroke="#4a5663" strokeWidth={1} />}
+      {!esLibreArriba && <line x1={60} y1={topY - 14} x2={240} y2={topY - 14} stroke="#5b6b78" strokeWidth={3} strokeLinecap="round" />}
 
       {/* Flecha de carga axial */}
       <polygon points={`${xCentro},${topY - 30} ${xCentro - 8},${topY - 16} ${xCentro + 8},${topY - 16}`} fill="#b3541e" />
-      <text x={xCentro + 14} y={topY - 18} fontSize="10" fill="#b3541e">P</text>
+      <text x={xCentro + 14} y={topY - 18} fontSize="10" fill="#b3541e" fontWeight="bold">P</text>
 
       {/* Columna deformada */}
-      <polyline points={puntos.join(' ')} fill="none" stroke={color} strokeWidth={6} strokeLinecap="round" opacity={0.9} />
+      <polyline points={puntos.join(' ')} fill="none" stroke={`url(#${colorId})`} strokeWidth={7} strokeLinecap="round" filter="url(#sombraColumna)" />
 
       {/* Comparador lateral en el punto medio */}
-      <circle cx={60} cy={topY + alto / 2} r={12} fill="#fff" stroke="#5b6b78" strokeWidth={1.5} />
-      <text x={60} y={topY + alto / 2 + 24} textAnchor="middle" fontSize="8" fill="#5b6b78">Comparador lateral</text>
+      <ComparadorDial cx={60} cy={topY + alto / 2} progreso={progresoComparador} valorMm={deflexion_mm} etiqueta="Comparador lateral" radio={18} />
 
       <text x={150} y={355} textAnchor="middle" fontSize="10" fill="#b3541e" fontWeight="bold">
         Escala gráfica de deflexión: ×{amplificacion} (amplificada) · forma del modo esquemática

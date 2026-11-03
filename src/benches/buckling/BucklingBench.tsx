@@ -79,6 +79,11 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
   const deflexion = delta0 > 0 ? deflexionConImperfeccion(PSeguro, Pcr, delta0) : 0;
   const cercaDeCritica = PSeguro / Pcr > 0.85;
   const celdaCarga = elegirCeldaCarga(Pcr);
+  // Deflexión de referencia para la aguja del comparador: la máxima alcanzable en este ensayo (en Pmax).
+  // Si la columna es perfecta (δ0 = 0) la deflexión real es siempre 0, así que la referencia también lo es
+  // y la aguja queda al centro durante todo el ensayo — correcto, no es un error de la simulación.
+  const deflexionReferencia = delta0 > 0 ? deflexionConImperfeccion(Pmax, Pcr, delta0) : 0;
+  const progresoComparador = deflexionReferencia > 0 ? Math.min(Math.abs(deflexion) / deflexionReferencia, 1) : 0;
 
   function registrarPunto() {
     const opciones = () => ({ semillaEnsayo: sesion.semilla, indicePunto: sesion.mediciones.length, calibrado: true });
@@ -154,7 +159,13 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
 
         <div className="zona-b panel">
           <div className="zona-etiqueta">Zona B · Banco de ensayo</div>
-          <BucklingSVG deflexion_mm={deflexion} amplificacion={AMPLIFICACION_VISUAL} condicion={condicion} cercaDeCritica={cercaDeCritica} />
+          <BucklingSVG
+            deflexion_mm={deflexion}
+            progresoComparador={progresoComparador}
+            amplificacion={AMPLIFICACION_VISUAL}
+            condicion={condicion}
+            cercaDeCritica={cercaDeCritica}
+          />
         </div>
 
         <div className="zona-c panel">
