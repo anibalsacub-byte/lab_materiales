@@ -47,12 +47,12 @@ export function ComparadorDial({ cx, cy, progreso, valorMm, etiqueta = 'Comparad
       {marcas.map((m, i) => (
         <line key={i} x1={m.x1} y1={m.y1} x2={m.x2} y2={m.y2} stroke="#8a97a3" strokeWidth={1} />
       ))}
-      <line x1={colaX} y1={colaY} x2={agujaX} y2={agujaY} stroke="#ab2d2d" strokeWidth={2} strokeLinecap="round" />
-      <circle cx={cx} cy={cy} r={2.4} fill="#123f61" />
-      <text x={cx} y={cy + r + 17} textAnchor="middle" fontSize="11" fontWeight="bold" fill="#123f61">
+      <line x1={colaX} y1={colaY} x2={agujaX} y2={agujaY} stroke="#ab2d2d" strokeWidth={2.4} strokeLinecap="round" />
+      <circle cx={cx} cy={cy} r={2.6} fill="#123f61" />
+      <text x={cx} y={cy + r + 21} textAnchor="middle" fontSize="15" fontWeight="bold" fill="#123f61">
         {valorMm.toFixed(4)} mm
       </text>
-      <text x={cx} y={cy + r + 29} textAnchor="middle" fontSize="8" fill="#5b6b78">{etiqueta}</text>
+      <text x={cx} y={cy + r + 34} textAnchor="middle" fontSize="10" fill="#5b6b78">{etiqueta}</text>
     </g>
   );
 }

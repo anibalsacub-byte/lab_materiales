@@ -28,7 +28,7 @@ export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm,
   const { claro, oscuro } = COLORES_ESTADO[estado];
 
   return (
-    <svg viewBox="0 0 300 380" width="100%" height="320" role="img" aria-label="Banco de ensayo de compresión">
+    <svg viewBox="0 0 340 380" width="100%" height="320" role="img" aria-label="Banco de ensayo de compresión">
       <defs>
         <linearGradient id="bastidorAcero" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor="#aab4bd" />
@@ -53,28 +53,28 @@ export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm,
       </defs>
 
       {/* Bastidor */}
-      <rect x={60} y={30} width={14} height={310} rx={3} fill="url(#bastidorAcero)" />
-      <rect x={226} y={30} width={14} height={310} rx={3} fill="url(#bastidorAcero)" />
-      <rect x={40} y={16} width={220} height={16} rx={4} fill="url(#cabezalActuador)" />
-      <rect x={40} y={328} width={220} height={16} rx={4} fill="#5b6b78" />
-      <text x={150} y={352} textAnchor="middle" fontSize="10" fill="#5b6b78">Base fija</text>
-      <text x={150} y={12} textAnchor="middle" fontSize="10" fill="#5b6b78">Cabezal del actuador</text>
+      <rect x={80} y={30} width={14} height={310} rx={3} fill="url(#bastidorAcero)" />
+      <rect x={246} y={30} width={14} height={310} rx={3} fill="url(#bastidorAcero)" />
+      <rect x={60} y={16} width={220} height={16} rx={4} fill="url(#cabezalActuador)" />
+      <rect x={60} y={328} width={220} height={16} rx={4} fill="#5b6b78" />
+      <text x={170} y={352} textAnchor="middle" fontSize="10" fill="#5b6b78">Base fija</text>
+      <text x={170} y={12} textAnchor="middle" fontSize="10" fill="#5b6b78">Cabezal del actuador</text>
 
       {/* Platos de compresión */}
-      <rect x={150 - anchoActual / 2 - 10} y={topY - 12} width={anchoActual + 20} height={12} rx={2.5} fill="url(#platoCompresion)" />
-      <rect x={150 - anchoActual / 2 - 10} y={bottomY} width={anchoActual + 20} height={12} rx={2.5} fill="url(#platoCompresion)" />
+      <rect x={170 - anchoActual / 2 - 10} y={topY - 12} width={anchoActual + 20} height={12} rx={2.5} fill="url(#platoCompresion)" />
+      <rect x={170 - anchoActual / 2 - 10} y={bottomY} width={anchoActual + 20} height={12} rx={2.5} fill="url(#platoCompresion)" />
 
       {/* Flechas de carga */}
       {epsilon > 0.0001 && (
         <>
-          <polygon points={`150,${topY - 30} 142,${topY - 16} 158,${topY - 16}`} fill="#b3541e" />
-          <polygon points={`150,${bottomY + 30} 142,${bottomY + 16} 158,${bottomY + 16}`} fill="#b3541e" />
+          <polygon points={`170,${topY - 30} 162,${topY - 16} 178,${topY - 16}`} fill="#b3541e" />
+          <polygon points={`170,${bottomY + 30} 162,${bottomY + 16} 178,${bottomY + 16}`} fill="#b3541e" />
         </>
       )}
 
       {/* Probeta */}
       <rect
-        x={150 - anchoActual / 2}
+        x={170 - anchoActual / 2}
         y={topY}
         width={anchoActual}
         height={altoProbeta}
@@ -86,10 +86,10 @@ export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm,
       />
 
       {/* Comparador axial: montado fuera del bastidor, con un brazo que lo conecta al plato móvil */}
-      <line x1={34} y1={CENTRO_Y - 10} x2={60} y2={topY - 6} stroke="#8a97a3" strokeWidth={1.5} strokeDasharray="3 2" />
-      <ComparadorDial cx={34} cy={CENTRO_Y - 10} radio={20} progreso={progreso} valorMm={acortamientoMm} etiqueta="Comparador axial" />
+      <line x1={32} y1={CENTRO_Y - 10} x2={80} y2={topY - 6} stroke="#8a97a3" strokeWidth={1.5} strokeDasharray="3 2" />
+      <ComparadorDial cx={32} cy={CENTRO_Y - 10} radio={24} progreso={progreso} valorMm={acortamientoMm} etiqueta="Comparador axial" />
 
-      <text x={150} y={370} textAnchor="middle" fontSize="10" fill="#b3541e" fontWeight="bold">
+      <text x={170} y={370} textAnchor="middle" fontSize="10" fill="#b3541e" fontWeight="bold">
         Escala gráfica de deformación: ×{amplificacion} (amplificada para visualización)
       </text>
     </svg>

@@ -227,21 +227,6 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
             acortamientoMm={acortamientoActual}
             progreso={progresoEnsayo}
           />
-          <label className="fila" style={{ alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" style={{ width: 'auto' }} checked={mostrarGrafico} onChange={(e) => setMostrarGrafico(e.target.checked)} />
-            <span style={{ flex: 'none' }}>Mostrar gráfico σ-ε en vivo</span>
-          </label>
-          {mostrarGrafico && (
-            <GraficoXY
-              curva={curvaReferencia}
-              puntoActual={{ x: epsilonObjetivo, y: sigmaActual }}
-              puntosRegistrados={puntosGraficados}
-              xMax={limiteEps}
-              yMax={sigmaMaxPosible}
-              xLabel="ε"
-              yLabel="σ (MPa)"
-            />
-          )}
         </div>
 
         {/* Zona C: instrumentación y control */}
@@ -308,6 +293,23 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
         <div className="zona-d panel">
           <div className="zona-etiqueta">Zona D · Datos y análisis</div>
 
+          <label className="fila" style={{ alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={mostrarGrafico} onChange={(e) => setMostrarGrafico(e.target.checked)} />
+            <span style={{ flex: 'none' }}>Mostrar gráfico σ-ε en vivo</span>
+          </label>
+          {mostrarGrafico && (
+            <GraficoXY
+              curva={curvaReferencia}
+              puntoActual={{ x: epsilonObjetivo, y: sigmaActual }}
+              puntosRegistrados={puntosGraficados}
+              xMax={limiteEps}
+              yMax={sigmaMaxPosible}
+              xLabel="ε"
+              yLabel="σ (MPa)"
+            />
+          )}
+
+          <hr className="separador" />
           <h3>Mediciones registradas ({sesion.mediciones.length})</h3>
           {sesion.mediciones.length === 0 ? (
             <p className="nota">Aplique carga en la Zona C y presione «Registrar punto» para ir guardando datos.</p>

@@ -28,7 +28,7 @@ export function BucklingSVG({ deflexion_mm, progresoComparador, amplificacion, c
   const topY = 40;
   const bottomY = 320;
   const alto = bottomY - topY;
-  const xCentro = 150;
+  const xCentro = 170;
   const deflexionPx = Math.min(deflexion_mm * amplificacion, 70);
 
   const puntos: string[] = [];
@@ -47,7 +47,7 @@ export function BucklingSVG({ deflexion_mm, progresoComparador, amplificacion, c
   const colorId = cercaDeCritica ? 'columnaCritica' : 'columnaNormal';
 
   return (
-    <svg viewBox="0 0 300 380" width="100%" height="320" role="img" aria-label="Banco de pandeo de columnas">
+    <svg viewBox="0 0 340 380" width="100%" height="320" role="img" aria-label="Banco de pandeo de columnas">
       <defs>
         <linearGradient id="columnaNormal" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor="#2d74a8" />
@@ -72,16 +72,16 @@ export function BucklingSVG({ deflexion_mm, progresoComparador, amplificacion, c
 
       {/* Apoyo inferior */}
       {esEmpotradoAbajo ? (
-        <rect x={110} y={bottomY} width={80} height={14} rx={3} fill="url(#apoyoFijo)" />
+        <rect x={130} y={bottomY} width={80} height={14} rx={3} fill="url(#apoyoFijo)" />
       ) : (
         <circle cx={xCentro} cy={bottomY + 6} r={8} fill="url(#apoyoPasador)" stroke="#4a5663" strokeWidth={1} />
       )}
-      <line x1={60} y1={bottomY + 14} x2={240} y2={bottomY + 14} stroke="#5b6b78" strokeWidth={3} strokeLinecap="round" />
+      <line x1={80} y1={bottomY + 14} x2={260} y2={bottomY + 14} stroke="#5b6b78" strokeWidth={3} strokeLinecap="round" />
 
       {/* Apoyo superior */}
-      {esEmpotradoArriba && <rect x={110} y={topY - 14} width={80} height={14} rx={3} fill="url(#apoyoFijo)" />}
+      {esEmpotradoArriba && <rect x={130} y={topY - 14} width={80} height={14} rx={3} fill="url(#apoyoFijo)" />}
       {!esEmpotradoArriba && !esLibreArriba && <circle cx={xCentro} cy={topY - 6} r={8} fill="url(#apoyoPasador)" stroke="#4a5663" strokeWidth={1} />}
-      {!esLibreArriba && <line x1={60} y1={topY - 14} x2={240} y2={topY - 14} stroke="#5b6b78" strokeWidth={3} strokeLinecap="round" />}
+      {!esLibreArriba && <line x1={80} y1={topY - 14} x2={260} y2={topY - 14} stroke="#5b6b78" strokeWidth={3} strokeLinecap="round" />}
 
       {/* Flecha de carga axial */}
       <polygon points={`${xCentro},${topY - 30} ${xCentro - 8},${topY - 16} ${xCentro + 8},${topY - 16}`} fill="#b3541e" />
@@ -90,14 +90,15 @@ export function BucklingSVG({ deflexion_mm, progresoComparador, amplificacion, c
       {/* Columna deformada */}
       <polyline points={puntos.join(' ')} fill="none" stroke={`url(#${colorId})`} strokeWidth={7} strokeLinecap="round" filter="url(#sombraColumna)" />
 
-      {/* Comparador lateral en el punto medio */}
-      <ComparadorDial cx={60} cy={topY + alto / 2} progreso={progresoComparador} valorMm={deflexion_mm} etiqueta="Comparador lateral" radio={18} />
+      {/* Comparador lateral, montado fuera de la columna con un brazo guía */}
+      <line x1={32} y1={topY + alto / 2} x2={80} y2={topY + alto / 2} stroke="#8a97a3" strokeWidth={1.5} strokeDasharray="3 2" />
+      <ComparadorDial cx={32} cy={topY + alto / 2} progreso={progresoComparador} valorMm={deflexion_mm} etiqueta="Comparador lateral" radio={22} />
 
-      <text x={150} y={355} textAnchor="middle" fontSize="10" fill="#b3541e" fontWeight="bold">
+      <text x={170} y={355} textAnchor="middle" fontSize="10" fill="#b3541e" fontWeight="bold">
         Escala gráfica de deflexión: ×{amplificacion} (amplificada) · forma del modo esquemática
       </text>
       {cercaDeCritica && (
-        <text x={150} y={20} textAnchor="middle" fontSize="11" fill="#ab2d2d" fontWeight="bold">
+        <text x={170} y={20} textAnchor="middle" fontSize="11" fill="#ab2d2d" fontWeight="bold">
           Cerca de la carga crítica de Euler
         </text>
       )}
