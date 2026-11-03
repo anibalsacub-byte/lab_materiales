@@ -1,6 +1,6 @@
 import { CATEGORIAS_MATERIAL, MATERIALES } from '../../engine/materials';
 
-export type TipoIcono = 'play' | 'pausa' | 'descargar' | 'montar' | 'retirar' | 'cero' | 'reiniciar';
+export type TipoIcono = 'play' | 'pausa' | 'montar' | 'retirar' | 'cero' | 'reiniciar';
 
 /** Íconos de los mandos de la máquina (SVG en línea: se ven igual en cualquier sistema, a diferencia de ▶ que algunos muestran como emoji). */
 export function Icono({ tipo }: { tipo: TipoIcono }) {
@@ -14,7 +14,6 @@ export function Icono({ tipo }: { tipo: TipoIcono }) {
           <rect x="9.5" y="2.5" width="3" height="11" rx="0.8" fill="currentColor" />
         </>
       )}
-      {tipo === 'descargar' && <path d="M8 2.5 V12 M4 8.5 L8 12.5 L12 8.5 M3 14.5 H13" {...trazo} />}
       {tipo === 'montar' && <path d="M8 13.5 V4 M4 7.5 L8 3.5 L12 7.5 M3 1.5 H13" {...trazo} />}
       {tipo === 'retirar' && <path d="M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5" {...trazo} />}
       {tipo === 'cero' && (

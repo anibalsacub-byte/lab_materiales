@@ -253,8 +253,8 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
       const r = simularRef.current(dtReal * factorRef.current, estado === 'descargando');
       forzarRender((n) => n + 1);
       if (r === 'fractura') return fracturarRef.current();
-      // Sin carga, el operador abre las mordazas y retira la probeta.
-      if (r === 'descargada') return setEstado('retirada');
+      // Sin carga, la máquina se detiene con la probeta aún montada: puede recargarse o desmontarse.
+      if (r === 'descargada') return setEstado('pausada');
       id = requestAnimationFrame(cuadro);
     };
     id = requestAnimationFrame(cuadro);
@@ -349,7 +349,10 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
     desmontada: 'Sin probeta — elija material y geometría, luego monte la probeta',
     montada: 'Probeta montada en las mordazas — lista para ensayar',
     corriendo: `En marcha · travesaño a ${fmt(velocidad, 1)} mm/min`,
-    pausada: 'En pausa — puede mover el travesaño manualmente',
+    pausada:
+      sigmaActual <= 0 && s.eps > 0
+        ? 'En pausa, sin carga — puede continuar (recarga) o desmontar la probeta'
+        : 'En pausa, con carga — descargue antes de desmontar; puede mover el travesaño manualmente',
     descargando: `Descargando · travesaño a ${fmt(velocidad, 1)} mm/min`,
     retirada: `Probeta retirada — quedó ${fmt(s.eps * L, 3)} mm más larga. Vuelva a montarla para recargarla o use «Nueva probeta»`,
     fracturada: 'Probeta fracturada — la máquina detectó la caída de carga',
@@ -512,7 +515,15 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
                 <Icono tipo="montar" /> Volver a montar
               </button>
             ) : (
-              <button className="btn-grande" onClick={() => setEstado('desmontada')} disabled={estado !== 'montada' || s.eps > 0}><Icono tipo="retirar" /> Desmontar</button>
+              // Solo sin carga: abrir las mordazas con la probeta cargada la haría recuperar de golpe su parte elástica.
+              <button
+                className="btn-grande"
+                onClick={() => setEstado(s.eps > 0 ? 'retirada' : 'desmontada')}
+                disabled={!((estado === 'montada' && s.eps === 0) || (estado === 'pausada' && sigmaActual <= 0))}
+                title="Retira la probeta de las mordazas (solo con carga cero)"
+              >
+                <Icono tipo="retirar" /> Desmontar
+              </button>
             )}
             <button className="btn-grande" onClick={() => setTarado(true)} disabled={estado !== 'montada' || tarado || s.eps > 0} title="Pone a cero la celda de carga y los extensómetros antes de cargar">
               <Icono tipo="cero" /> {tarado ? 'Tarado ✓' : 'Cero / tara'}
@@ -524,8 +535,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
                 <Icono tipo="play" /> {estado === 'pausada' ? 'Continuar' : 'Iniciar'}
               </button>
             )}
-            <button className="btn-grande" onClick={() => setEstado('descargando')} disabled={!(estado === 'corriendo' || estado === 'pausada') || sigmaActual <= 0} title="Descarga hasta carga cero y retira la probeta">
-              <Icono tipo="descargar" />
+            <button className="btn-grande" onClick={() => setEstado('descargando')} disabled={!(estado === 'corriendo' || estado === 'pausada') || sigmaActual <= 0} title="Retrocede el travesaño hasta carga cero; la probeta queda montada">
               Descargar
             </button>
           </div>
