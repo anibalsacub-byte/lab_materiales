@@ -22,7 +22,7 @@ import {
 import { COLORES_PROBETA } from '../../components/lab/coloresProbeta';
 import { GraficoEnsayo, type OpcionesGrafico, type PuntoClave, type RegionGrafico } from '../../components/svg/GraficoEnsayo';
 import { MarcoMaquinaSVG } from '../../components/svg/MarcoMaquinaSVG';
-import { MontajePandeoSVG, yTravesanoPandeo } from './MontajePandeoSVG';
+import { MontajePandeoSVG, acortamientoVisualPandeo, yTravesanoPandeo } from './MontajePandeoSVG';
 import { useSesionEnsayo } from '../../trial/useSesionEnsayo';
 import { useEnsayoMaquina, type ModeloEnsayo } from '../../trial/useEnsayoMaquina';
 import { obtenerMaterial } from '../../engine/materials';
@@ -170,6 +170,13 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
 
   const kVis = Math.min(18, 60 / flechaFin);
   const colapso = fluyo(s.xMax) ? Math.min((env(s.xMax).delta - hito!.delta) / Math.max(flechaFin - hito!.delta, 1e-6), 1) : 0;
+  // Flecha dibujada y acercamiento de los extremos coherente con ella (desde la forma inicial con δ₀):
+  // el travesaño baja junto con la columna que se curva.
+  const flechaVisual = Math.min(kVis * delta, 70);
+  const acortVisual = Math.max(
+    acortamientoVisualPandeo(condicion, flechaVisual, colapso) - acortamientoVisualPandeo(condicion, Math.min(kVis * delta0, 70), 0),
+    0,
+  );
 
   const regimen = (() => {
     if (!montada) return '—';
@@ -283,7 +290,7 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
           <div className="lab-panel-titulo">Máquina universal de ensayos</div>
           <MarcoMaquinaSVG
             ariaLabel="Máquina universal de ensayos con montaje de pandeo"
-            yTravesano={yTravesanoPandeo() - (enMaquina ? 0 : 8)}
+            yTravesano={yTravesanoPandeo(acortVisual) - (enMaquina ? 0 : 8)}
             colorProbeta={COLORES_PROBETA[material.categoria]}
             displayCarga={displayCarga}
             displayPico={displayPico}
@@ -293,7 +300,8 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
           >
             <MontajePandeoSVG
               condicion={condicion}
-              flechaVisual={Math.min(kVis * delta, 70)}
+              flechaVisual={flechaVisual}
+              acortamiento={acortVisual}
               colapso={colapso}
               fracturada={fracturada}
               grosor={Math.min(Math.max(espesorPandeo * 0.9, 5), 16)}

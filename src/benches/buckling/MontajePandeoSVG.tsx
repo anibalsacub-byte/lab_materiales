@@ -45,13 +45,40 @@ export function posicionFlechaMaxima(c: CondicionApoyo): number {
   return c === 'empotrado-libre' ? 0.97 : c === 'empotrado-articulado' ? 2 / 3 : 0.5;
 }
 
-export function yTravesanoPandeo(): number {
-  return Y_BASE - LARGO - APOYO - 24;
+/** Borde superior del travesaño: baja tanto como se acercan los extremos de la columna. */
+export function yTravesanoPandeo(acortamiento = 0): number {
+  return Y_BASE - LARGO + acortamiento - APOYO - 24;
+}
+
+/** Desplazamiento lateral dibujado en s (0 base, 1 arriba): modo de pandeo que se quiebra en una rótula al colapsar. */
+function lateral(condicion: CondicionApoyo, flecha: number, colapso: number, s: number): number {
+  const sMax = posicionFlechaMaxima(condicion);
+  const elastica = formaModo(condicion, s);
+  const rotula = s <= sMax ? s / sMax : apoyosDe(condicion).arriba === 'libre' ? 1 : (1 - s) / (1 - sMax);
+  return flecha * ((1 - colapso) * elastica + colapso * Math.min(rotula, 1));
+}
+
+/**
+ * Acercamiento de los extremos (px) que exige la forma dibujada si la columna no se alarga:
+ * Δ = ½∫(dw/dy)² dy. Con él, el travesaño baja de forma coherente con la flecha dibujada
+ * (es el acortamiento geométrico por flexión, con la misma escala gráfica que la flecha).
+ */
+export function acortamientoVisualPandeo(condicion: CondicionApoyo, flecha: number, colapso: number): number {
+  const n = 200;
+  const dy = LARGO / n;
+  let delta = 0;
+  for (let i = 0; i < n; i++) {
+    const dw = lateral(condicion, flecha, colapso, (i + 1) / n) - lateral(condicion, flecha, colapso, i / n);
+    delta += (0.5 * dw * dw) / dy;
+  }
+  return delta;
 }
 
 interface Props {
   condicion: CondicionApoyo;
   flechaVisual: number;
+  /** Acercamiento de los extremos ya dibujado (px): el extremo superior y el travesaño bajan esto. */
+  acortamiento: number;
   /** 0 (elástica) a 1 (rótula plástica formada en el punto de máxima flecha). */
   colapso: number;
   fracturada: boolean;
@@ -64,22 +91,19 @@ interface Props {
 
 export function MontajePandeoSVG(p: Props) {
   const { abajo, arriba } = apoyosDe(p.condicion);
-  const yTop = Y_BASE - LARGO;
+  // La cuerda entre extremos se acorta a medida que la columna se curva: el extremo superior baja.
+  const cuerda = LARGO - p.acortamiento;
+  const yTop = Y_BASE - cuerda;
   const sMax = posicionFlechaMaxima(p.condicion);
   const n = 60;
-  const x = (s: number) => {
-    const elastica = formaModo(p.condicion, s);
-    // Con la rótula, la forma se quiebra en el punto de máxima flecha.
-    const rotula = s <= sMax ? s / sMax : arriba === 'libre' ? 1 : (1 - s) / (1 - sMax);
-    return XC + p.flechaVisual * ((1 - p.colapso) * elastica + p.colapso * Math.min(rotula, 1));
-  };
+  const x = (s: number) => XC + lateral(p.condicion, p.flechaVisual, p.colapso, s);
   const puntos = (s0: number, s1: number) =>
     Array.from({ length: n + 1 }, (_, i) => {
       const s = s0 + ((s1 - s0) * i) / n;
-      return `${x(s).toFixed(1)},${(Y_BASE - LARGO * s).toFixed(1)}`;
+      return `${x(s).toFixed(1)},${(Y_BASE - cuerda * s).toFixed(1)}`;
     }).join(' ');
   const xTop = x(1);
-  const yComp = Y_BASE - LARGO * sMax;
+  const yComp = Y_BASE - cuerda * sMax;
 
   function apoyo(tipo: 'articulado' | 'empotrado' | 'libre', y: number, haciaArriba: boolean, xc: number) {
     const signo = haciaArriba ? -1 : 1;
