@@ -1,17 +1,18 @@
 :root {
-  --color-bg: #f4f6f8;
+  --color-bg: #eef2f6;
   --color-surface: #ffffff;
   --color-border: #d7dde3;
-  --color-text: #1f2a33;
+  --color-text: #1b2733;
   --color-text-muted: #5b6b78;
   --color-primary: #1d5a8a;
-  --color-primary-dark: #123f61;
+  --color-primary-dark: #0f3a5c;
   --color-accent: #b3541e;
   --color-ok: #1d7a46;
   --color-warn: #a86a00;
   --color-error: #ab2d2d;
-  --radius: 6px;
-  --font: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --radius: 7px;
+  --font: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'Courier New', monospace;
 }
 
 * { box-sizing: border-box; }
@@ -24,28 +25,35 @@ html, body, #root {
   color: var(--color-text);
   font-family: var(--font);
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4 { margin: 0 0 8px 0; font-weight: 600; color: var(--color-primary-dark); }
-h1 { font-size: 20px; }
+h1, h2, h3, h4 { margin: 0 0 8px 0; font-weight: 700; color: var(--color-primary-dark); letter-spacing: -0.01em; }
+h1 { font-size: 21px; }
 h2 { font-size: 16px; }
-h3 { font-size: 14px; }
-p { margin: 0 0 8px 0; line-height: 1.45; }
-label { font-size: 12.5px; color: var(--color-text-muted); display: block; margin-bottom: 2px; }
+h3 { font-size: 13.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); font-weight: 700; }
+p { margin: 0 0 8px 0; line-height: 1.5; }
+label { font-size: 12px; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 500; }
 
 button {
   font-family: var(--font);
   font-size: 13px;
+  font-weight: 500;
   padding: 7px 14px;
   border-radius: var(--radius);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
   cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
 button:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary-dark); }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
 button:disabled { opacity: 0.45; cursor: not-allowed; }
-button.primario { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+button.primario { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 600; }
 button.primario:hover:not(:disabled) { background: var(--color-primary-dark); }
 button.peligro { border-color: var(--color-error); color: var(--color-error); }
 
@@ -58,6 +66,13 @@ select, input[type="number"], input[type="text"], textarea {
   background: #fff;
   color: var(--color-text);
   width: 100%;
+}
+
+/* Las magnitudes numéricas usan una tipografía monoespaciada: se leen como un instrumento,
+   con cifras alineadas y fáciles de comparar entre sí, en vez de texto de prosa. */
+input[type="number"], .valor-numerico, table.tabla-datos td {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .panel {
@@ -83,9 +98,11 @@ select, input[type="number"], input[type="text"], textarea {
   padding-bottom: 8px;
 }
 
-.topbar .titulo { font-size: 18px; font-weight: 700; color: var(--color-primary-dark); }
-.topbar .subtitulo { font-size: 12px; color: var(--color-text-muted); }
+.topbar .titulo { font-size: 20px; font-weight: 700; color: var(--color-primary-dark); letter-spacing: -0.01em; }
+.topbar .subtitulo { font-size: 12.5px; color: var(--color-text-muted); }
 .volver { font-size: 12.5px; }
+
+.pie-pagina { margin-top: 28px; padding-top: 12px; border-top: 1px solid var(--color-border); font-size: 11.5px; color: var(--color-text-muted); text-align: center; }
 
 .catalogo-grupo { margin-bottom: 22px; }
 .catalogo-grid {
@@ -125,10 +142,12 @@ select, input[type="number"], input[type="text"], textarea {
 .zona-etiqueta {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-primary);
-  margin-bottom: 6px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .campo { margin-bottom: 10px; }
@@ -164,8 +183,8 @@ select, input[type="number"], input[type="text"], textarea {
   padding: 8px 10px;
   text-align: center;
 }
-.lectura-card .lectura-etiqueta { font-size: 10.5px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 2px; }
-.lectura-card .lectura-valor { font-size: 17px; font-weight: 700; color: var(--color-primary-dark); font-variant-numeric: tabular-nums; }
+.lectura-card .lectura-etiqueta { font-size: 10.5px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; font-weight: 600; }
+.lectura-card .lectura-valor { font-family: var(--font-mono); font-size: 19px; font-weight: 600; color: var(--color-primary-dark); font-variant-numeric: tabular-nums; }
 .lectura-card .lectura-unidad { font-size: 11px; color: var(--color-text-muted); margin-left: 3px; }
 
 .stepper { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
@@ -178,11 +197,11 @@ select, input[type="number"], input[type="text"], textarea {
 .stepper button.visitado { border-color: var(--color-primary); color: var(--color-primary-dark); }
 
 table.tabla-datos { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-table.tabla-datos th, table.tabla-datos td { border: 1px solid var(--color-border); padding: 5px 7px; text-align: right; }
-table.tabla-datos th { background: #eef2f5; text-align: center; }
+table.tabla-datos th, table.tabla-datos td { border: 1px solid var(--color-border); padding: 6px 8px; text-align: right; }
+table.tabla-datos th { background: #e9eef3; text-align: center; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; color: var(--color-text-muted); }
 table.tabla-datos td:first-child, table.tabla-datos th:first-child { text-align: center; }
 
-.chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; font-family: var(--font-mono); }
 .chip.ok { background: #e4f3ea; color: var(--color-ok); }
 .chip.warn { background: #fdf0da; color: var(--color-warn); }
 .chip.error { background: #f9e3e3; color: var(--color-error); }

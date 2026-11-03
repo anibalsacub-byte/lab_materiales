@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { medir, INSTRUMENTOS, elegirCeldaCarga } from '../measurement';
+import { medir, INSTRUMENTOS, elegirCeldaCarga, elegirTorquimetro, elegirIndicadorAngular } from '../measurement';
 
 describe('Instrumentación virtual', () => {
   const celda = INSTRUMENTOS.celdaCarga50kN;
@@ -66,5 +66,18 @@ describe('Selección automática de celda de carga', () => {
 
   it('una fuerza que excede todas las celdas usa la de mayor rango disponible', () => {
     expect(elegirCeldaCarga(5000000).id).toBe('celda-carga-1000kn');
+  });
+});
+
+describe('Selección automática de torquímetro e indicador angular', () => {
+  it('elige el torquímetro más pequeño que cubre el par esperado', () => {
+    expect(elegirTorquimetro(5000).id).toBe('torquimetro-10nm');
+    expect(elegirTorquimetro(50000).id).toBe('torquimetro-100nm');
+    expect(elegirTorquimetro(500000).id).toBe('torquimetro-1000nm');
+  });
+
+  it('elige el indicador angular más pequeño que cubre el giro esperado', () => {
+    expect(elegirIndicadorAngular(10).id).toBe('indicador-angular-30');
+    expect(elegirIndicadorAngular(90).id).toBe('indicador-angular-180');
   });
 });

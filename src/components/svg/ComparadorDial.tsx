@@ -3,7 +3,9 @@ interface Props {
   cy: number;
   /** Progreso de la aguja en [0, 1] respecto al fondo de escala elegido para la visualización del dial. */
   progreso: number;
-  valorMm: number;
+  valor: number;
+  unidad?: string;
+  decimales?: number;
   etiqueta?: string;
   radio?: number;
 }
@@ -15,7 +17,7 @@ interface Props {
  * aguja nunca se mueva en contradicción con el valor numérico mostrado (p. ej. si
  * la deflexión real es cero, progreso debe ser 0 y la aguja debe quedar al centro).
  */
-export function ComparadorDial({ cx, cy, progreso, valorMm, etiqueta = 'Comparador', radio = 22 }: Props) {
+export function ComparadorDial({ cx, cy, progreso, valor, unidad = 'mm', decimales = 4, etiqueta = 'Comparador', radio = 22 }: Props) {
   const r = radio;
   const p = Math.min(Math.max(progreso, 0), 1);
   const anguloDeg = -110 + p * 220;
@@ -49,10 +51,10 @@ export function ComparadorDial({ cx, cy, progreso, valorMm, etiqueta = 'Comparad
       ))}
       <line x1={colaX} y1={colaY} x2={agujaX} y2={agujaY} stroke="#ab2d2d" strokeWidth={2.4} strokeLinecap="round" />
       <circle cx={cx} cy={cy} r={2.6} fill="#123f61" />
-      <text x={cx} y={cy + r + 21} textAnchor="middle" fontSize="15" fontWeight="bold" fill="#123f61">
-        {valorMm.toFixed(4)} mm
+      <text x={cx} y={cy + r + 21} textAnchor="middle" fontSize="15" fontWeight="700" fill="#123f61" style={{ fontFamily: 'var(--font-mono)' }}>
+        {valor.toFixed(decimales)} {unidad}
       </text>
-      <text x={cx} y={cy + r + 34} textAnchor="middle" fontSize="10" fill="#5b6b78">{etiqueta}</text>
+      <text x={cx} y={cy + r + 34} textAnchor="middle" fontSize="10" fill="#5b6b78" style={{ fontFamily: 'var(--font)' }}>{etiqueta}</text>
     </g>
   );
 }

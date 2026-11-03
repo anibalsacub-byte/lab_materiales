@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { TractionBench } from './benches/traction/TractionBench';
 import { CompressionBench } from './benches/compression/CompressionBench';
+import { TorsionBench } from './benches/torsion/TorsionBench';
 import { BucklingBench } from './benches/buckling/BucklingBench';
 import { SectionsStation } from './stations/sections/SectionsStation';
 import { MohrStation } from './stations/mohr/MohrStation';
@@ -25,11 +27,11 @@ interface ItemCatalogo {
 }
 
 const BANCOS: ItemCatalogo[] = [
-  { vista: 'banco-traccion', nombre: 'Banco 1 — Tracción', descripcion: 'Ensayo de tracción uniaxial. Próxima etapa.', disponible: false },
+  { vista: 'banco-traccion', nombre: 'Banco 1 — Tracción', descripcion: 'Ensayo de tracción hasta la fractura: módulo elástico, fluencia y resistencia última.', disponible: true },
   { vista: 'banco-compresion', nombre: 'Banco 2 — Compresión', descripcion: 'Compresión axial, módulo elástico y Poisson.', disponible: true },
   { vista: 'banco-flexion', nombre: 'Banco 3 — Flexión', descripcion: 'Vigas, diagramas V-M y deflexión. Próxima etapa.', disponible: false },
   { vista: 'banco-cortante', nombre: 'Banco 4 — Cortante', descripcion: 'Cortante simple y doble. Próxima etapa.', disponible: false },
-  { vista: 'banco-torsion', nombre: 'Banco 5 — Torsión', descripcion: 'Torsión de ejes circulares. Próxima etapa.', disponible: false },
+  { vista: 'banco-torsion', nombre: 'Banco 5 — Torsión', descripcion: 'Torsión de ejes circulares: ángulo de giro y esfuerzo cortante.', disponible: true },
   { vista: 'banco-pandeo', nombre: 'Banco 6 — Pandeo de columnas', descripcion: 'Carga crítica de Euler, esbeltez y factor de seguridad.', disponible: true },
   { vista: 'banco-uniones', nombre: 'Banco 7 — Uniones mecánicas', descripcion: 'Pernos, pasadores y placas. Próxima etapa.', disponible: false },
   { vista: 'banco-presion', nombre: 'Banco 8 — Recipientes a presión', descripcion: 'Pared delgada, esfuerzos circunferencial y longitudinal. Próxima etapa.', disponible: false },
@@ -57,7 +59,9 @@ export default function App() {
   const [vista, setVista] = useState<Vista>('catalogo');
   const volver = () => setVista('catalogo');
 
+  if (vista === 'banco-traccion') return <div className="app-shell"><TractionBench onVolver={volver} /></div>;
   if (vista === 'banco-compresion') return <div className="app-shell"><CompressionBench onVolver={volver} /></div>;
+  if (vista === 'banco-torsion') return <div className="app-shell"><TorsionBench onVolver={volver} /></div>;
   if (vista === 'banco-pandeo') return <div className="app-shell"><BucklingBench onVolver={volver} /></div>;
   if (vista === 'estacion-secciones') return <div className="app-shell"><SectionsStation onVolver={volver} /></div>;
   if (vista === 'estacion-mohr') return <div className="app-shell"><MohrStation onVolver={volver} /></div>;
@@ -67,7 +71,7 @@ export default function App() {
       <div className="topbar">
         <div>
           <div className="titulo">Laboratorio Virtual de Resistencia de Materiales</div>
-          <div className="subtitulo">Universidad Andina del Cusco · Ingeniería Industrial · IND011</div>
+          <div className="subtitulo">Simulador interactivo de ensayos mecánicos para Ingeniería</div>
         </div>
       </div>
 
@@ -86,10 +90,12 @@ export default function App() {
       </div>
 
       <p className="nota">
-        Primera etapa de implementación (núcleo + tercera unidad): biblioteca de materiales, sistema de medición
-        virtual, banco de compresión, banco de pandeo y las dos estaciones de análisis. Todas las lecturas mostradas
-        son mediciones virtuales generadas por simulación, no datos de un equipo físico.
+        Todas las lecturas mostradas son mediciones virtuales generadas por simulación, no datos de un equipo físico.
       </p>
+
+      <div className="pie-pagina">
+        Creado por <strong>Ricardo Aníbal Sánchez Cuba</strong> — Ingeniero Industrial, docente universitario.
+      </div>
     </div>
   );
 }

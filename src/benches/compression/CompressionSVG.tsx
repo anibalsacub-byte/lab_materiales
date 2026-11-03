@@ -87,7 +87,7 @@ export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm,
 
       {/* Comparador axial: montado fuera del bastidor, con un brazo que lo conecta al plato móvil */}
       <line x1={32} y1={CENTRO_Y - 10} x2={80} y2={topY - 6} stroke="#8a97a3" strokeWidth={1.5} strokeDasharray="3 2" />
-      <ComparadorDial cx={32} cy={CENTRO_Y - 10} radio={24} progreso={progreso} valorMm={acortamientoMm} etiqueta="Comparador axial" />
+      <ComparadorDial cx={32} cy={CENTRO_Y - 10} radio={24} progreso={progreso} valor={acortamientoMm} etiqueta="Comparador axial" />
 
       <text x={170} y={370} textAnchor="middle" fontSize="10" fill="#b3541e" fontWeight="bold">
         Escala gráfica de deformación: ×{amplificacion} (amplificada para visualización)

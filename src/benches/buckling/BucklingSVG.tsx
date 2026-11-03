@@ -92,7 +92,7 @@ export function BucklingSVG({ deflexion_mm, progresoComparador, amplificacion, c
 
       {/* Comparador lateral, montado fuera de la columna con un brazo guía */}
       <line x1={32} y1={topY + alto / 2} x2={80} y2={topY + alto / 2} stroke="#8a97a3" strokeWidth={1.5} strokeDasharray="3 2" />
-      <ComparadorDial cx={32} cy={topY + alto / 2} progreso={progresoComparador} valorMm={deflexion_mm} etiqueta="Comparador lateral" radio={22} />
+      <ComparadorDial cx={32} cy={topY + alto / 2} progreso={progresoComparador} valor={deflexion_mm} etiqueta="Comparador lateral" radio={22} />
 
       <text x={170} y={355} textAnchor="middle" fontSize="10" fill="#b3541e" fontWeight="bold">
         Escala gráfica de deflexión: ×{amplificacion} (amplificada) · forma del modo esquemática

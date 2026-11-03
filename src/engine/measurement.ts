@@ -133,6 +133,56 @@ export const INSTRUMENTOS: Record<string, EspecificacionInstrumento> = {
     errorCeroMax_pct: 0.3,
     incertidumbre_pct: 2.0,
   },
+  torquimetro10: {
+    id: 'torquimetro-10nm',
+    nombre: 'Torquímetro 10 N·m',
+    magnitud: 'par torsor',
+    unidad: 'N·mm',
+    rango: [0, 10000],
+    resolucion: 5,
+    errorCeroMax_pct: 0.15,
+    incertidumbre_pct: 0.6,
+  },
+  torquimetro100: {
+    id: 'torquimetro-100nm',
+    nombre: 'Torquímetro 100 N·m',
+    magnitud: 'par torsor',
+    unidad: 'N·mm',
+    rango: [0, 100000],
+    resolucion: 50,
+    errorCeroMax_pct: 0.15,
+    incertidumbre_pct: 0.6,
+  },
+  torquimetro1000: {
+    id: 'torquimetro-1000nm',
+    nombre: 'Torquímetro 1000 N·m',
+    magnitud: 'par torsor',
+    unidad: 'N·mm',
+    rango: [0, 1000000],
+    resolucion: 500,
+    errorCeroMax_pct: 0.15,
+    incertidumbre_pct: 0.6,
+  },
+  indicadorAngular30: {
+    id: 'indicador-angular-30',
+    nombre: 'Indicador angular (±30°)',
+    magnitud: 'ángulo de giro',
+    unidad: '°',
+    rango: [-30, 30],
+    resolucion: 0.02,
+    errorCeroMax_pct: 0.2,
+    incertidumbre_pct: 1.0,
+  },
+  indicadorAngular180: {
+    id: 'indicador-angular-180',
+    nombre: 'Indicador angular (±180°)',
+    magnitud: 'ángulo de giro',
+    unidad: '°',
+    rango: [-180, 180],
+    resolucion: 0.1,
+    errorCeroMax_pct: 0.2,
+    incertidumbre_pct: 1.0,
+  },
 };
 
 /**
@@ -145,4 +195,18 @@ export function elegirCeldaCarga(fuerzaMaxima_N: number): EspecificacionInstrume
   const celdas = [INSTRUMENTOS.celdaCarga50kN, INSTRUMENTOS.celdaCarga200kN, INSTRUMENTOS.celdaCarga1000kN];
   const objetivo = Math.abs(fuerzaMaxima_N) * 1.15;
   return celdas.find((c) => c.rango[1] >= objetivo) ?? celdas[celdas.length - 1];
+}
+
+/** Selecciona, igual que {@link elegirCeldaCarga}, el torquímetro de menor rango que cubre el par esperado. */
+export function elegirTorquimetro(torqueMaximo_Nmm: number): EspecificacionInstrumento {
+  const torquimetros = [INSTRUMENTOS.torquimetro10, INSTRUMENTOS.torquimetro100, INSTRUMENTOS.torquimetro1000];
+  const objetivo = Math.abs(torqueMaximo_Nmm) * 1.15;
+  return torquimetros.find((t) => t.rango[1] >= objetivo) ?? torquimetros[torquimetros.length - 1];
+}
+
+/** Selecciona el indicador angular de menor rango que cubre el giro máximo esperado (en grados). */
+export function elegirIndicadorAngular(anguloMaximo_deg: number): EspecificacionInstrumento {
+  const indicadores = [INSTRUMENTOS.indicadorAngular30, INSTRUMENTOS.indicadorAngular180];
+  const objetivo = Math.abs(anguloMaximo_deg) * 1.15;
+  return indicadores.find((i) => i.rango[1] >= objetivo) ?? indicadores[indicadores.length - 1];
 }
