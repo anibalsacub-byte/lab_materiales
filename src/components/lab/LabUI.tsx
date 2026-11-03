@@ -117,8 +117,21 @@ export function BarraPasos({ pasos, actual }: { pasos: string[]; actual: number 
 }
 
 /** Selección de material con botones agrupados por familia. */
-export function ChipsMaterial({ materialId, onChange, disabled, soloIsotropicos }: { materialId: string; onChange: (id: string) => void; disabled?: boolean; soloIsotropicos?: boolean }) {
-  const disponibles = MATERIALES.filter((m) => !m.esDesconocido && !(soloIsotropicos && m.esOrtotropico));
+export function ChipsMaterial({
+  materialId,
+  onChange,
+  disabled,
+  soloIsotropicos,
+  filtro,
+}: {
+  materialId: string;
+  onChange: (id: string) => void;
+  disabled?: boolean;
+  soloIsotropicos?: boolean;
+  /** Restringe los materiales mostrados (p. ej. a los que tienen datos para el ensayo). */
+  filtro?: (id: string) => boolean;
+}) {
+  const disponibles = MATERIALES.filter((m) => !m.esDesconocido && !(soloIsotropicos && m.esOrtotropico) && (!filtro || filtro(m.id)));
   const categorias = Array.from(new Set(disponibles.map((m) => m.categoria)));
   return (
     <div className="chips-material">

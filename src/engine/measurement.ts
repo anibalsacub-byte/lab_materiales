@@ -207,6 +207,29 @@ export const INSTRUMENTOS: Record<string, EspecificacionInstrumento> = {
     // Encoder óptico: ±0,01° o 0,1 % de la lectura, lo que sea mayor.
     umbralIncertidumbre: 10,
   },
+  escalaPendulo: {
+    id: 'escala-pendulo-charpy',
+    nombre: 'Escala del péndulo con aguja de arrastre',
+    magnitud: 'ángulo de subida',
+    unidad: '°',
+    rango: [0, 180],
+    resolucion: 0.1,
+    errorCeroMax_pct: 0.05,
+    incertidumbre_pct: 0.05,
+    umbralIncertidumbre: 100,
+  },
+  termometroBano: {
+    id: 'termometro-bano',
+    nombre: 'Termómetro del baño (±0,5 °C)',
+    magnitud: 'temperatura',
+    unidad: '°C',
+    rango: [-200, 200],
+    resolucion: 0.1,
+    errorCeroMax_pct: 0.1,
+    incertidumbre_pct: 0.25,
+    // ±0,5 °C en todo el rango: la incertidumbre no baja de 0,25 % de 200.
+    umbralIncertidumbre: 200,
+  },
   indicadorAngular180: {
     id: 'indicador-angular-180',
     nombre: 'Indicador angular (±180°)',

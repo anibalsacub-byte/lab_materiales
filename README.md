@@ -66,6 +66,12 @@ Implementado y funcional:
     empotrados y comparador lateral; imperfección inicial, aproximación a Pcr, bifurcación de la
     columna perfecta y colapso por rótula plástica; método de Southwell; sección tubular; curva de
     diseño Euler–Johnson σcr(λ) con la columna ensayada.
+- **Banco 9 — Impacto Charpy** (ASTM E23 / ISO 148-1): péndulo de 300 J animado con escala y aguja de
+  arrastre, probetas con entalla en V o U acondicionadas en un baño de −196 °C a 100 °C, tiempo de
+  traslado (la probeta se calienta si pasan más de 5 s y el ensayo se marca no válido), ensayo en
+  vacío para medir las pérdidas, curva de transición dúctil–frágil con T27J, porcentaje de fractura
+  dúctil y superficie de fractura, y comparación entre materiales (aceros BCC con transición, FCC sin
+  ella, fundición gris frágil). Curvas de referencia ilustrativas, no datos certificados.
 - **Estación A — Propiedades geométricas** y **Estación B — Círculo de Mohr**: herramientas de
   análisis interactivas con representación gráfica.
 - **Exportación**: mediciones a CSV, sesión completa a JSON, informe imprimible (PDF vía
@@ -91,6 +97,7 @@ src/
       mohr.ts                  Círculo de Mohr / transformación de esfuerzos
       torsion.ts                Torsión de ejes circulares
       pressureVessel.ts          Recipientes de pared delgada
+      impact.ts                  Péndulo Charpy y transición dúctil–frágil
     __tests__/                Pruebas de validación numérica (vitest) — ver más abajo
 
   trial/                    Gestión de la sesión de ensayo (independiente del banco concreto)
@@ -128,7 +135,7 @@ Requiere Node.js 20+.
 ```bash
 npm install
 npm run dev        # http://localhost:5173 con recarga en caliente
-npm test            # 132 pruebas de validación numérica (vitest)
+npm test            # 143 pruebas de validación numérica (vitest)
 npm run build       # compila TypeScript y genera dist/ para producción
 npm run preview     # sirve dist/ localmente
 ```

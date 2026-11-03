@@ -4,6 +4,7 @@ import { CompressionBench } from './benches/compression/CompressionBench';
 import { BendingBench } from './benches/bending/BendingBench';
 import { TorsionBench } from './benches/torsion/TorsionBench';
 import { BucklingBench } from './benches/buckling/BucklingBench';
+import { ImpactBench } from './benches/impact/ImpactBench';
 import { SectionsStation } from './stations/sections/SectionsStation';
 import { MohrStation } from './stations/mohr/MohrStation';
 
@@ -17,6 +18,7 @@ type Vista =
   | 'banco-pandeo'
   | 'banco-uniones'
   | 'banco-presion'
+  | 'banco-impacto'
   | 'estacion-secciones'
   | 'estacion-mohr';
 
@@ -36,6 +38,7 @@ const BANCOS: ItemCatalogo[] = [
   { vista: 'banco-pandeo', nombre: 'Banco 6 — Pandeo de columnas', descripcion: 'Columna en la máquina universal: imperfección, carga crítica de Euler, esbeltez y colapso.', disponible: true },
   { vista: 'banco-uniones', nombre: 'Banco 7 — Uniones mecánicas', descripcion: 'Pernos, pasadores y placas. Próxima etapa.', disponible: false },
   { vista: 'banco-presion', nombre: 'Banco 8 — Recipientes a presión', descripcion: 'Pared delgada, esfuerzos circunferencial y longitudinal. Próxima etapa.', disponible: false },
+  { vista: 'banco-impacto', nombre: 'Banco 9 — Impacto Charpy', descripcion: 'Péndulo de 300 J: probetas acondicionadas en baño, curva de transición dúctil–frágil, T27J y superficie de fractura.', disponible: true },
 ];
 
 const ESTACIONES: ItemCatalogo[] = [
@@ -64,6 +67,7 @@ export default function App() {
   if (vista === 'banco-compresion') return <div className="app-shell"><CompressionBench onVolver={volver} /></div>;
   if (vista === 'banco-flexion') return <div className="app-shell"><BendingBench onVolver={volver} /></div>;
   if (vista === 'banco-torsion') return <div className="app-shell"><TorsionBench onVolver={volver} /></div>;
+  if (vista === 'banco-impacto') return <div className="app-shell"><ImpactBench onVolver={volver} /></div>;
   if (vista === 'banco-pandeo') return <div className="app-shell"><BucklingBench onVolver={volver} /></div>;
   if (vista === 'estacion-secciones') return <div className="app-shell"><SectionsStation onVolver={volver} /></div>;
   if (vista === 'estacion-mohr') return <div className="app-shell"><MohrStation onVolver={volver} /></div>;
