@@ -26,14 +26,14 @@ type ModoControl = 'fuerza' | 'epsilon' | 'mm';
 
 /**
  * A diferencia de compresión, en tracción la fractura SÍ es el comportamiento real que se busca
- * observar (σU y εF de la biblioteca son precisamente los valores de tracción), así que el
- * límite del ensayo llega casi hasta εF en vez de usar un margen conservador.
+ * observar (σU y εF de la biblioteca son precisamente los valores de tracción): el límite del
+ * ensayo es exactamente εF, así que llevar el control hasta el tope fractura la probeta.
  */
 function limiteDeformacion(materialId: string): number {
   const m = obtenerMaterial(materialId);
   if (!m) return 0.01;
   const epsF = m.propiedades.epsilonF;
-  return epsF !== undefined ? epsF * 0.995 : 0.02;
+  return epsF !== undefined ? epsF : 0.02;
 }
 
 export function TractionBench({ onVolver }: { onVolver: () => void }) {
@@ -97,6 +97,16 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
   function manejarSlider(v: number) {
     if (sesion.probetaDestruida) return;
     const vAcotado = Math.min(Math.max(v, 0), limiteEps);
+    const epsF = material.propiedades.epsilonF;
+    // Llevar el control hasta el tope del ensayo es, físicamente, llevar la probeta hasta su
+    // deformación de fractura: en vez de quedarse "congelada" justo antes, rompe de verdad.
+    if (epsF !== undefined && vAcotado >= limiteEps * 0.999) {
+      const epsFractura = epsF * 1.02;
+      setEpsilonObjetivo(epsFractura);
+      setEpsilonMaxAlcanzado(epsFractura);
+      marcarProbetaDestruida();
+      return;
+    }
     setEpsilonObjetivo(vAcotado);
     setEpsilonMaxAlcanzado((prev) => Math.max(prev, vAcotado));
     setDeformacionPermanenteUltima(null);
@@ -296,11 +306,18 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
               curva={curvaReferencia}
               puntoActual={{ x: epsilonObjetivo, y: sigmaActual }}
               puntosRegistrados={puntosGraficados}
-              xMax={limiteEps}
+              xMax={limiteEps * 1.05}
               yMax={sigmaMaxPosible}
               xLabel="ε"
               yLabel="σ (MPa)"
+              colorActual={sesion.probetaDestruida ? '#ab2d2d' : undefined}
             />
+          )}
+          {sesion.probetaDestruida && (
+            <p className="advertencia">
+              La probeta fracturó: el esfuerzo cae a cero porque ya no hay sección intacta que resista la carga — el
+              punto rojo al final de la curva marca la fractura.
+            </p>
           )}
 
           <hr className="separador" />
