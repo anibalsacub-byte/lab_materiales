@@ -2,10 +2,13 @@
 
 Laboratorio experimental virtual para la asignatura **Resistencia de Materiales (IND011)** —
 Ingeniería Industrial, Universidad Andina del Cusco. No es una calculadora de fórmulas ni un
-cuestionario: el estudiante configura un banco de ensayo, predice resultados, instrumenta,
-ejecuta el ensayo, registra mediciones (con las limitaciones realistas de un instrumento:
-rango, resolución, error de cero, incertidumbre) y valida sus cálculos contra un modelo físico
-de referencia.
+cuestionario: el estudiante configura un banco de ensayo, lo opera directamente (como un
+simulador tipo [PhET](https://phet.colorado.edu/) — sliders con lectura numérica en vivo, sin
+pasos obligatorios) y ve la respuesta física en tiempo real, con las limitaciones realistas de
+un instrumento (rango, resolución, error de cero, incertidumbre). Puede registrar puntos,
+compararlos al instante contra el modelo de referencia y exportar sus datos. Los modos guiados o
+de evaluación (predicción obligatoria, rúbrica, semillas por estudiante) se construirán después,
+como una capa aparte sobre este mismo simulador.
 
 ## Estado del proyecto — Primera etapa (núcleo + tercera unidad)
 
@@ -29,19 +32,20 @@ Implementado y funcional:
 - **Analizador de secciones** (`src/engine/sections.ts`): área, centroide, Ix, Iy, Ixy, radios de
   giro y ejes principales para secciones circulares, rectangulares (macizas y tubulares) y
   perfiles I, T y L (por el método de rectángulos compuestos).
-- **Banco 2 — Compresión** y **Banco 6 — Pandeo de columnas**: ensayo completo en las 9 etapas
-  (preparación → predicción → instrumentación → ejecución → registro → cálculo → validación →
-  interpretación → exportación), con representación SVG interactiva, descarga/deformación
-  permanente, probeta destructible y reemplazable, y comparación teórico-experimental con error
-  porcentual.
+- **Banco 2 — Compresión** y **Banco 6 — Pandeo de columnas**: manipulación directa de la carga
+  (por fuerza, deformación unitaria o milímetros), representación SVG interactiva con
+  instrumentos en vivo (celda de carga con rango autoajustado, comparador de carátula, gráfico
+  σ-ε / P-δ en tiempo real), descarga/deformación permanente, probeta destructible y
+  reemplazable, registro de puntos y comparación instantánea contra el modelo de referencia —
+  todo en una sola vista, sin pasos obligatorios.
 - **Estación A — Propiedades geométricas** y **Estación B — Círculo de Mohr**: herramientas de
   análisis interactivas con representación gráfica.
 - **Exportación**: mediciones a CSV, sesión completa a JSON, informe imprimible (PDF vía
   impresión del navegador).
 
 Pendiente para etapas siguientes (según el plan de la asignatura): bancos de Tracción, Flexión,
-Cortante, Torsión, Uniones mecánicas y Recipientes a presión; modo docente/evaluación con
-semillas por estudiante y rúbrica configurable.
+Cortante, Torsión, Uniones mecánicas y Recipientes a presión; un modo guiado/evaluación opcional
+(predicción previa, rúbrica, semillas por estudiante) construido sobre este mismo simulador.
 
 ## Arquitectura
 
@@ -62,7 +66,8 @@ src/
     __tests__/                Pruebas de validación numérica (vitest) — ver más abajo
 
   trial/                    Gestión de la sesión de ensayo (independiente del banco concreto)
-    useSesionEnsayo.ts        Hook con las 9 etapas del procedimiento experimental
+    useSesionEnsayo.ts        Hook con el estado del ensayo (material, mediciones, cálculos del
+                               estudiante); no impone una secuencia de pasos en la interfaz
     exportar.ts                 CSV / JSON
 
   components/               Piezas de interfaz reutilizables entre bancos y estaciones

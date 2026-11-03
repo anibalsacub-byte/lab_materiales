@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { EtapasStepper } from '../../components/EtapasStepper';
 import { MaterialSelector } from '../../components/MaterialSelector';
 import { TablaValidacion, FilaValidacion } from '../../components/FilaValidacion';
 import { LecturasPanel } from '../../components/LecturasPanel';
+import { GraficoXY } from '../../components/svg/GraficoXY';
 import { useSesionEnsayo } from '../../trial/useSesionEnsayo';
 import { exportarMedicionesCSV, exportarSesionJSON } from '../../trial/exportar';
 import { obtenerMaterial } from '../../engine/materials';
@@ -12,6 +12,7 @@ import {
   deformacionFluencia,
   deformacionPermanenteTrasDescarga,
   deformacionTransversal,
+  generarCurvaEsfuerzoDeformacion,
 } from '../../engine/mechanics/axial';
 import { calcularSeccion } from '../../engine/sections';
 import { medir, INSTRUMENTOS, elegirCeldaCarga } from '../../engine/measurement';
@@ -33,19 +34,8 @@ function limiteDeformacion(materialId: string): number {
 }
 
 export function CompressionBench({ onVolver }: { onVolver: () => void }) {
-  const {
-    sesion,
-    irAEtapa,
-    avanzar,
-    retroceder,
-    setMaterial,
-    registrarPrediccion,
-    agregarMedicion,
-    registrarCalculo,
-    registrarConclusiones,
-    marcarProbetaDestruida,
-    reiniciarEnsayo,
-  } = useSesionEnsayo('banco-2-compresion', 'astm-a36');
+  const { sesion, setMaterial, agregarMedicion, registrarCalculo, registrarConclusiones, marcarProbetaDestruida, reiniciarEnsayo } =
+    useSesionEnsayo('banco-2-compresion', 'astm-a36');
 
   const [tipoSeccion, setTipoSeccion] = useState<TipoSeccionLocal>('circular');
   const [d, setD] = useState(20);
@@ -62,8 +52,8 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
   const [epsilonesRegistrados, setEpsilonesRegistrados] = useState<number[]>([]);
   const [indiceSeleccionado, setIndiceSeleccionado] = useState(0);
   const [probetasUsadas, setProbetasUsadas] = useState(1);
-  const [pPredicho, setPPredicho] = useState(5000);
   const [modoControl, setModoControl] = useState<ModoControl>('fuerza');
+  const [mostrarGrafico, setMostrarGrafico] = useState(true);
 
   const material = obtenerMaterial(sesion.materialId)!;
 
@@ -93,6 +83,9 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
   const celdaCarga = elegirCeldaCarga(sigmaMaxPosible * A);
   const maxFuerza = sigmaMaxPosible * A;
   const pasoFuerza = maxFuerza / 500;
+
+  const curvaReferencia = useMemo(() => generarCurvaEsfuerzoDeformacion(material, 60, limiteEps).map((p) => ({ x: p.epsilon, y: p.sigma_MPa })), [material, limiteEps]);
+  const puntosGraficados = epsilonesRegistrados.map((eps) => ({ x: eps, y: esfuerzoEnDeformacion(material, eps) ?? 0 }));
 
   const estadoSvg: 'elastico' | 'plastico' | 'destruida' = sesion.probetaDestruida
     ? 'destruida'
@@ -159,24 +152,24 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
     };
     agregarMedicion(lecturas);
     setEpsilonesRegistrados((arr) => [...arr, epsilonObjetivo]);
+    setIndiceSeleccionado(sesion.mediciones.length);
   }
 
   const puntoRef = epsilonesRegistrados[indiceSeleccionado];
   const sigmaRef = puntoRef !== undefined ? esfuerzoEnDeformacion(material, puntoRef) : undefined;
   const ERef = material.propiedades.E_MPa;
   const nuRef = material.propiedades.nu;
+  const hayCalculo = sesion.calculosEstudiante.sigma !== undefined || sesion.calculosEstudiante.epsilon !== undefined || sesion.calculosEstudiante.E !== undefined || sesion.calculosEstudiante.nu !== undefined;
 
   return (
     <div>
       <div className="topbar">
         <div>
           <div className="titulo">Banco 2 — Compresión axial</div>
-          <div className="subtitulo">Configure, prediga, ejecute, mida y valide un ensayo de compresión.</div>
+          <div className="subtitulo">Configure el ensayo, manipule la carga y observe la respuesta en tiempo real.</div>
         </div>
         <button className="volver" onClick={onVolver}>← Volver al catálogo</button>
       </div>
-
-      <EtapasStepper etapaActual={sesion.etapaActual} onIr={irAEtapa} />
 
       <div className="banco-grid">
         {/* Zona A: configuración */}
@@ -234,6 +227,21 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
             acortamientoMm={acortamientoActual}
             progreso={progresoEnsayo}
           />
+          <label className="fila" style={{ alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={mostrarGrafico} onChange={(e) => setMostrarGrafico(e.target.checked)} />
+            <span style={{ flex: 'none' }}>Mostrar gráfico σ-ε en vivo</span>
+          </label>
+          {mostrarGrafico && (
+            <GraficoXY
+              curva={curvaReferencia}
+              puntoActual={{ x: epsilonObjetivo, y: sigmaActual }}
+              puntosRegistrados={puntosGraficados}
+              xMax={limiteEps}
+              yMax={sigmaMaxPosible}
+              xLabel="ε"
+              yLabel="σ (MPa)"
+            />
+          )}
         </div>
 
         {/* Zona C: instrumentación y control */}
@@ -260,53 +268,18 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
             <div className="control-paso">
               <button className="boton-paso" onClick={() => ajustarPaso(-1)} disabled={sesion.probetaDestruida || epsilonObjetivo <= 0} aria-label="Disminuir carga">−</button>
               {modoControl === 'fuerza' && (
-                <input
-                  type="range"
-                  min={0}
-                  max={maxFuerza}
-                  step={pasoFuerza}
-                  value={PActual}
-                  onChange={(e) => manejarSliderFuerza(Number(e.target.value))}
-                  disabled={sesion.probetaDestruida}
-                />
+                <input type="range" min={0} max={maxFuerza} step={pasoFuerza} value={PActual} onChange={(e) => manejarSliderFuerza(Number(e.target.value))} disabled={sesion.probetaDestruida} />
               )}
               {modoControl === 'epsilon' && (
-                <input
-                  type="range"
-                  min={0}
-                  max={limiteEps}
-                  step={pasoSlider}
-                  value={epsilonObjetivo}
-                  onChange={(e) => manejarSlider(Number(e.target.value))}
-                  disabled={sesion.probetaDestruida}
-                />
+                <input type="range" min={0} max={limiteEps} step={pasoSlider} value={epsilonObjetivo} onChange={(e) => manejarSlider(Number(e.target.value))} disabled={sesion.probetaDestruida} />
               )}
               {modoControl === 'mm' && (
-                <input
-                  type="range"
-                  min={0}
-                  max={maxMm}
-                  step={pasoSliderMm}
-                  value={acortamientoActual}
-                  onChange={(e) => manejarSlider(Number(e.target.value) / L)}
-                  disabled={sesion.probetaDestruida}
-                />
+                <input type="range" min={0} max={maxMm} step={pasoSliderMm} value={acortamientoActual} onChange={(e) => manejarSlider(Number(e.target.value) / L)} disabled={sesion.probetaDestruida} />
               )}
               <button className="boton-paso" onClick={() => ajustarPaso(1)} disabled={sesion.probetaDestruida || epsilonObjetivo >= limiteEps} aria-label="Aumentar carga">+</button>
             </div>
-            <p className="nota">
-              {modoControl === 'fuerza' && <>Cada clic en − / + aplica un paso fino de Δε = {pasoSlider.toFixed(6)} (fuerza equivalente ≈ {pasoFuerza.toFixed(1)} N).</>}
-              {modoControl === 'epsilon' && <>Cada clic en − / + aplica un paso fino de Δε = {pasoSlider.toFixed(6)}.</>}
-              {modoControl === 'mm' && <>Cada clic en − / + aplica un paso fino de ΔL = {pasoSliderMm.toFixed(5)} mm (equivale a Δε = {pasoSlider.toFixed(6)}).</>}
-            </p>
-            <p className="nota">
-              En una máquina de ensayos real, el actuador controla el desplazamiento (ε o mm): es más estable, sobre todo
-              pasada la fluencia. El control por fuerza aquí resuelve internamente la deformación correspondiente — como
-              el modelo no tiene ablandamiento, la conversión siempre es exacta.
-            </p>
           </div>
 
-          <p className="nota">Lecturas instantáneas (valor verdadero, antes de instrumentar):</p>
           <LecturasPanel
             lecturas={[
               { etiqueta: 'Fuerza', valor: PActual.toFixed(0), unidad: 'N' },
@@ -322,131 +295,92 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
             <p className="advertencia">Deformación permanente tras la descarga: ε_p = {deformacionPermanenteUltima.toFixed(5)}</p>
           )}
           <hr className="separador" />
-          <button className="peligro" onClick={manejarFalla} disabled={sesion.probetaDestruida || material.propiedades.epsilonF === undefined}>
-            Forzar hasta la falla (destructivo)
-          </button>
-          {sesion.probetaDestruida && (
-            <>
-              <p className="advertencia">Probeta destruida. Reemplácela para continuar.</p>
-              <button className="primario" onClick={manejarNuevaProbeta}>Nueva probeta</button>
-            </>
-          )}
+          <div className="fila">
+            <button className="peligro" onClick={manejarFalla} disabled={sesion.probetaDestruida || material.propiedades.epsilonF === undefined}>
+              Forzar hasta la falla
+            </button>
+            <button onClick={manejarNuevaProbeta}>Nueva probeta</button>
+          </div>
+          {sesion.probetaDestruida && <p className="advertencia">Probeta destruida. Use «Nueva probeta» para continuar.</p>}
         </div>
 
-        {/* Zona D: análisis y resultados (depende de la etapa) */}
+        {/* Zona D: datos y análisis (todo visible a la vez, sin pasos obligatorios) */}
         <div className="zona-d panel">
-          <div className="zona-etiqueta">Zona D · Análisis</div>
+          <div className="zona-etiqueta">Zona D · Datos y análisis</div>
 
-          {sesion.etapaActual === 'preparacion' && <p>Configure el ensayo en la Zona A y pase a «Predicción».</p>}
-
-          {sesion.etapaActual === 'prediccion' && (
-            <div>
-              <h3>Predicción teórica</h3>
-              <div className="campo">
-                <label>Fuerza objetivo para la predicción (N)</label>
-                <input type="number" value={pPredicho} onChange={(e) => setPPredicho(Number(e.target.value))} />
-              </div>
-              <p className="nota">Calcule σ, ε, ΔL y E para esta fuerza asumiendo régimen elástico, antes de ejecutar el ensayo.</p>
-              {(['sigma', 'epsilon', 'deltaL', 'E'] as const).map((variable) => (
-                <div className="campo" key={variable}>
-                  <label>{variable}</label>
-                  <input
-                    type="number"
-                    onChange={(e) => registrarPrediccion({ variable, valor: Number(e.target.value), unidad: variable === 'sigma' || variable === 'E' ? 'MPa' : variable === 'deltaL' ? 'mm' : '—' })}
-                  />
-                </div>
-              ))}
-            </div>
+          <h3>Mediciones registradas ({sesion.mediciones.length})</h3>
+          {sesion.mediciones.length === 0 ? (
+            <p className="nota">Aplique carga en la Zona C y presione «Registrar punto» para ir guardando datos.</p>
+          ) : (
+            <table className="tabla-datos">
+              <thead>
+                <tr><th>#</th><th>Fuerza (N)</th><th>Acortamiento (mm)</th><th>ε transversal</th></tr>
+              </thead>
+              <tbody>
+                {sesion.mediciones.map((p, i) => (
+                  <tr key={p.id} onClick={() => setIndiceSeleccionado(i)} style={{ cursor: 'pointer', background: i === indiceSeleccionado ? '#eaf1f7' : undefined }}>
+                    <td>{i}</td>
+                    <td>{p.lecturas.fuerza.valor ?? '—'}</td>
+                    <td>{p.lecturas.acortamiento.valor ?? '—'}</td>
+                    <td>{p.lecturas.deformacionTransversal.valor ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
 
-          {sesion.etapaActual === 'instrumentacion' && (
-            <div>
-              <h3>Instrumentos</h3>
-              <ul>
-                <li>{celdaCarga.nombre}: rango [{celdaCarga.rango.join(', ')}] N, resolución {celdaCarga.resolucion} N — {calibradoCelda ? 'calibrada' : 'sin calibrar'}</li>
-                <li>{INSTRUMENTOS.comparadorDigital25mm.nombre}: resolución {INSTRUMENTOS.comparadorDigital25mm.resolucion} mm — {calibradoComparador ? 'calibrado' : 'sin calibrar'}</li>
-                <li>{INSTRUMENTOS.extensometroTransversal.nombre}: resolución {INSTRUMENTOS.extensometroTransversal.resolucion} mm/mm — {calibradoExtensometro ? 'calibrado' : 'sin calibrar'}</li>
-              </ul>
-              <p className="nota">Realice la puesta a cero de cada instrumento en la Zona C antes de ejecutar.</p>
-            </div>
-          )}
-
-          {sesion.etapaActual === 'ejecucion' && <p>Use el control de deformación en la Zona C. Cuando tenga una lectura estable, pase a «Registro».</p>}
-
-          {(sesion.etapaActual === 'registro' || sesion.etapaActual === 'calculo' || sesion.etapaActual === 'validacion') && (
-            <div>
-              <h3>Mediciones registradas ({sesion.mediciones.length})</h3>
-              <table className="tabla-datos">
-                <thead>
-                  <tr><th>#</th><th>Fuerza (N)</th><th>Acortamiento (mm)</th><th>ε transversal</th></tr>
-                </thead>
-                <tbody>
-                  {sesion.mediciones.map((p, i) => (
-                    <tr key={p.id}>
-                      <td>{i}</td>
-                      <td>{p.lecturas.fuerza.valor ?? '—'}</td>
-                      <td>{p.lecturas.acortamiento.valor ?? '—'}</td>
-                      <td>{p.lecturas.deformacionTransversal.valor ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {sesion.mediciones.length < 5 && <p className="advertencia">Registre al menos 5 puntos a distintos niveles de carga.</p>}
-            </div>
-          )}
-
-          {sesion.etapaActual === 'calculo' && sesion.mediciones.length > 0 && (
-            <div>
-              <h3>Cálculo</h3>
+          {sesion.mediciones.length > 0 && (
+            <>
+              <hr className="separador" />
+              <h3>Calcule y compare</h3>
               <div className="campo">
                 <label>Punto a analizar</label>
                 <select value={indiceSeleccionado} onChange={(e) => setIndiceSeleccionado(Number(e.target.value))}>
                   {sesion.mediciones.map((_, i) => <option key={i} value={i}>Punto {i}</option>)}
                 </select>
               </div>
-              {(['sigma', 'epsilon', 'E', 'nu'] as const).map((variable) => (
-                <div className="campo" key={variable}>
-                  <label>{variable}</label>
-                  <input type="number" onChange={(e) => registrarCalculo(variable, Number(e.target.value))} />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {sesion.etapaActual === 'validacion' && puntoRef !== undefined && sigmaRef !== undefined && (
-            <div>
-              <h3>Validación — punto {indiceSeleccionado}</h3>
-              <TablaValidacion>
-                <FilaValidacion etiqueta="σ (esfuerzo)" valorEstudiante={sesion.calculosEstudiante.sigma} valorReferencia={sigmaRef} unidad="MPa" />
-                <FilaValidacion etiqueta="ε (deformación unitaria)" valorEstudiante={sesion.calculosEstudiante.epsilon} valorReferencia={puntoRef} unidad="" />
-                {ERef !== undefined && <FilaValidacion etiqueta="E (módulo de Young)" valorEstudiante={sesion.calculosEstudiante.E} valorReferencia={ERef} unidad="MPa" />}
-                {nuRef !== undefined && puntoRef <= (epsY ?? 0) && <FilaValidacion etiqueta="ν (Poisson, solo válido en zona elástica)" valorEstudiante={sesion.calculosEstudiante.nu} valorReferencia={nuRef} unidad="" />}
-              </TablaValidacion>
-            </div>
-          )}
-
-          {sesion.etapaActual === 'interpretacion' && (
-            <div>
-              <h3>Conclusiones</h3>
-              <textarea rows={8} value={sesion.conclusiones} onChange={(e) => registrarConclusiones(e.target.value)} placeholder="Describa el comportamiento observado, la seguridad, diferencias con el modelo teórico y limitaciones del ensayo." />
-            </div>
-          )}
-
-          {sesion.etapaActual === 'exportacion' && (
-            <div>
-              <h3>Exportar</h3>
               <div className="fila campo">
-                <button onClick={() => exportarMedicionesCSV(sesion)}>Exportar mediciones (CSV)</button>
-                <button onClick={() => exportarSesionJSON(sesion)}>Exportar sesión (JSON)</button>
+                {(['sigma', 'epsilon'] as const).map((variable) => (
+                  <div key={variable}>
+                    <label>{variable === 'sigma' ? 'σ calculado (MPa)' : 'ε calculado'}</label>
+                    <input type="number" value={sesion.calculosEstudiante[variable] ?? ''} onChange={(e) => registrarCalculo(variable, Number(e.target.value))} />
+                  </div>
+                ))}
               </div>
-              <button onClick={() => window.print()}>Imprimir informe</button>
-            </div>
+              <div className="fila campo">
+                {(['E', 'nu'] as const).map((variable) => (
+                  <div key={variable}>
+                    <label>{variable === 'E' ? 'E calculado (MPa)' : 'ν calculado'}</label>
+                    <input type="number" value={sesion.calculosEstudiante[variable] ?? ''} onChange={(e) => registrarCalculo(variable, Number(e.target.value))} />
+                  </div>
+                ))}
+              </div>
+
+              {hayCalculo && puntoRef !== undefined && sigmaRef !== undefined && (
+                <TablaValidacion>
+                  <FilaValidacion etiqueta="σ (esfuerzo)" valorEstudiante={sesion.calculosEstudiante.sigma} valorReferencia={sigmaRef} unidad="MPa" />
+                  <FilaValidacion etiqueta="ε (deformación unitaria)" valorEstudiante={sesion.calculosEstudiante.epsilon} valorReferencia={puntoRef} unidad="" />
+                  {ERef !== undefined && <FilaValidacion etiqueta="E (módulo de Young)" valorEstudiante={sesion.calculosEstudiante.E} valorReferencia={ERef} unidad="MPa" />}
+                  {nuRef !== undefined && puntoRef <= (epsY ?? 0) && <FilaValidacion etiqueta="ν (Poisson, solo válido en zona elástica)" valorEstudiante={sesion.calculosEstudiante.nu} valorReferencia={nuRef} unidad="" />}
+                </TablaValidacion>
+              )}
+            </>
           )}
 
           <hr className="separador" />
+          <h3>Notas</h3>
+          <textarea
+            rows={5}
+            value={sesion.conclusiones}
+            onChange={(e) => registrarConclusiones(e.target.value)}
+            placeholder="Observaciones, comportamiento del material, comparación con el modelo teórico…"
+          />
+
+          <hr className="separador" />
           <div className="fila">
-            <button onClick={retroceder}>← Etapa anterior</button>
-            <button className="primario" onClick={avanzar}>Siguiente etapa →</button>
+            <button onClick={() => exportarMedicionesCSV(sesion)} disabled={sesion.mediciones.length === 0}>Exportar CSV</button>
+            <button onClick={() => exportarSesionJSON(sesion)}>Exportar JSON</button>
+            <button onClick={() => window.print()}>Imprimir</button>
           </div>
         </div>
       </div>
