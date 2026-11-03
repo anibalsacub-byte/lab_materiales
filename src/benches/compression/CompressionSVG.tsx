@@ -53,10 +53,10 @@ export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm,
       </defs>
 
       {/* Bastidor */}
-      <rect x={26} y={30} width={14} height={310} rx={3} fill="url(#bastidorAcero)" />
-      <rect x={256} y={30} width={14} height={310} rx={3} fill="url(#bastidorAcero)" />
-      <rect x={6} y={16} width={284} height={16} rx={4} fill="url(#cabezalActuador)" />
-      <rect x={6} y={328} width={284} height={16} rx={4} fill="#5b6b78" />
+      <rect x={60} y={30} width={14} height={310} rx={3} fill="url(#bastidorAcero)" />
+      <rect x={226} y={30} width={14} height={310} rx={3} fill="url(#bastidorAcero)" />
+      <rect x={40} y={16} width={220} height={16} rx={4} fill="url(#cabezalActuador)" />
+      <rect x={40} y={328} width={220} height={16} rx={4} fill="#5b6b78" />
       <text x={150} y={352} textAnchor="middle" fontSize="10" fill="#5b6b78">Base fija</text>
       <text x={150} y={12} textAnchor="middle" fontSize="10" fill="#5b6b78">Cabezal del actuador</text>
 
@@ -85,8 +85,9 @@ export function CompressionSVG({ epsilon, amplificacion, estado, acortamientoMm,
         filter="url(#sombraSuave)"
       />
 
-      {/* Comparador axial */}
-      <ComparadorDial cx={68} cy={CENTRO_Y - 10} radio={20} progreso={progreso} valorMm={acortamientoMm} etiqueta="Comparador axial" />
+      {/* Comparador axial: montado fuera del bastidor, con un brazo que lo conecta al plato móvil */}
+      <line x1={34} y1={CENTRO_Y - 10} x2={60} y2={topY - 6} stroke="#8a97a3" strokeWidth={1.5} strokeDasharray="3 2" />
+      <ComparadorDial cx={34} cy={CENTRO_Y - 10} radio={20} progreso={progreso} valorMm={acortamientoMm} etiqueta="Comparador axial" />
 
       <text x={150} y={370} textAnchor="middle" fontSize="10" fill="#b3541e" fontWeight="bold">
         Escala gráfica de deformación: ×{amplificacion} (amplificada para visualización)
