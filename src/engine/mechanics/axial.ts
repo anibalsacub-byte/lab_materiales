@@ -60,7 +60,18 @@ export interface ParametrosCurvaBilineal {
   sigmaY: number;
   sigmaU: number;
   sigmaFractura: number; // esfuerzo ingenieril remanente en la fractura, tras la estricción
+  /**
+   * Exponente de Ramberg-Osgood (ε = σ/E + 0,002·(σ/σY)ⁿ) para metales que fluyen de forma continua,
+   * calculado para que la curva pase por (εUTS, σU). undefined si el material tiene meseta o si
+   * σU ≈ σY: entonces el endurecimiento usa {@link EXPONENTE_ENDURECIMIENTO}.
+   */
+  exponenteRO?: number;
 }
+
+/** Forma del endurecimiento tras la meseta: σ = σY + (σU − σY)·[1 − (1 − x)ᵐ]; pendiente nula en σU. */
+const EXPONENTE_ENDURECIMIENTO = 3;
+/** Deformación plástica convencional del límite elástico (método del 0,2 %). */
+const OFFSET_CONVENCIONAL = 0.002;
 
 /** Ancho de la meseta de fluencia (deformación de Lüders), típico de orden de 1 a 2 % en aceros al carbono. */
 const ANCHO_MESETA = 0.015;
@@ -78,6 +89,13 @@ export function parametrosCurvaBilineal(material: Material): ParametrosCurvaBili
   const epsY = sigmaY_MPa / E_MPa;
   const epsPlateauFin = material.mesetaFluencia ? Math.min(epsY + ANCHO_MESETA, epsilonF) : epsY;
   const epsUTS = epsPlateauFin + FRACCION_DEFORMACION_UTS * Math.max(epsilonF - epsPlateauFin, 0);
+  // σY documentado = límite convencional 0,2 %: Ramberg-Osgood pasa por (σY/E + 0,002, σY) y se ajusta n
+  // para llegar a (εUTS, σU).
+  const plasticaUTS = epsUTS - sigmaU_MPa / E_MPa;
+  const exponenteRO =
+    !material.mesetaFluencia && sigmaU_MPa > sigmaY_MPa * 1.005 && plasticaUTS > OFFSET_CONVENCIONAL
+      ? Math.log(plasticaUTS / OFFSET_CONVENCIONAL) / Math.log(sigmaU_MPa / sigmaY_MPa)
+      : undefined;
   return {
     epsY,
     epsPlateauFin,
@@ -86,7 +104,20 @@ export function parametrosCurvaBilineal(material: Material): ParametrosCurvaBili
     sigmaY: sigmaY_MPa,
     sigmaU: sigmaU_MPa,
     sigmaFractura: sigmaU_MPa * FRACCION_ESFUERZO_FRACTURA,
+    exponenteRO,
   };
+}
+
+/** σ(ε) de Ramberg-Osgood por bisección (la relación explícita es ε(σ), monótona creciente). */
+function esfuerzoRambergOsgood(epsilon: number, E: number, p: ParametrosCurvaBilineal, n: number): number {
+  let bajo = 0;
+  let alto = p.sigmaU;
+  for (let i = 0; i < 60; i++) {
+    const medio = (bajo + alto) / 2;
+    if (medio / E + OFFSET_CONVENCIONAL * (medio / p.sigmaY) ** n < epsilon) bajo = medio;
+    else alto = medio;
+  }
+  return (bajo + alto) / 2;
 }
 
 /**
@@ -108,13 +139,15 @@ function exponenteFragil(material: Material): number | undefined {
  * Esfuerzo ingenieril σ(ε) según el modelo constitutivo del material:
  * - elastico_lineal: σ = E·ε hasta ε = εF (fractura); más allá no está definido.
  * - fragil_lineal: sin fluencia; ver {@link exponenteFragil}. Rompe en (εF, σU) sin superar nunca σU.
- * - elastico_plastico_bilineal: tramo elástico E·ε hasta εY; luego, si el material tiene
- *   {@link Material.mesetaFluencia}, una meseta plana en σY (fenómeno de Lüders); después
- *   endurecimiento hasta (εUTS, σU); y finalmente un ablandamiento ingenieril hasta (εF,
- *   σ_fractura) que representa la estricción. Es un modelo simplificado por tramos rectos
- *   (no una curva continua real), pensado para fines didácticos, construido únicamente con
- *   σY, σU y εF documentados — εUTS y σ_fractura se estiman con fracciones fijas, no con datos
- *   propios de cada material.
+ * - elastico_plastico_bilineal (metales dúctiles), por tramos continuos:
+ *   · con {@link Material.mesetaFluencia}: recta E·ε hasta εY, meseta plana en σY (Lüders) y
+ *     endurecimiento curvo σY + (σU − σY)·[1 − (1 − x)³] que llega a σU con pendiente nula;
+ *   · sin meseta: Ramberg-Osgood desde el origen (codo redondeado, sin punto de fluencia
+ *     marcado, con σY como límite convencional 0,2 %) hasta (εUTS, σU);
+ *   · en ambos casos, estricción: caída parabólica σU − (σU − σ_fractura)·t², cada vez más
+ *     rápida, hasta (εF, σ_fractura).
+ *   Se construye solo con E, σY, σU y εF documentados — εUTS y σ_fractura se estiman con
+ *   fracciones fijas, no con datos propios de cada material.
  *
  * Devuelve undefined si ε supera εF (la probeta ya fracturó) o si faltan datos.
  */
@@ -140,15 +173,19 @@ export function esfuerzoEnDeformacion(material: Material, epsilon: number): numb
     const epsY = sigmaY / E_MPa;
     return epsAbs <= epsY ? signo * E_MPa * epsAbs : signo * sigmaY;
   }
-  if (epsAbs <= p.epsY) return signo * E_MPa * epsAbs;
-  if (epsAbs <= p.epsPlateauFin) return signo * p.sigmaY;
-  if (epsAbs <= p.epsUTS) {
-    const Ep = (p.sigmaU - p.sigmaY) / (p.epsUTS - p.epsPlateauFin);
-    return signo * (p.sigmaY + Ep * (epsAbs - p.epsPlateauFin));
+  if (p.exponenteRO !== undefined) {
+    if (epsAbs <= p.epsUTS) return signo * esfuerzoRambergOsgood(epsAbs, E_MPa, p, p.exponenteRO);
+  } else {
+    if (epsAbs <= p.epsY) return signo * E_MPa * epsAbs;
+    if (epsAbs <= p.epsPlateauFin) return signo * p.sigmaY;
+    if (epsAbs <= p.epsUTS) {
+      const x = (epsAbs - p.epsPlateauFin) / (p.epsUTS - p.epsPlateauFin);
+      return signo * (p.sigmaY + (p.sigmaU - p.sigmaY) * (1 - (1 - x) ** EXPONENTE_ENDURECIMIENTO));
+    }
   }
   if (epsAbs <= p.epsF) {
-    const pendiente = (p.sigmaFractura - p.sigmaU) / (p.epsF - p.epsUTS);
-    return signo * (p.sigmaU + pendiente * (epsAbs - p.epsUTS));
+    const t = (epsAbs - p.epsUTS) / (p.epsF - p.epsUTS);
+    return signo * (p.sigmaU - (p.sigmaU - p.sigmaFractura) * t * t);
   }
   return undefined; // fractura
 }
@@ -183,12 +220,16 @@ export function deformacionDesdeEsfuerzo(material: Material, sigma_MPa: number):
 
   // elastico_plastico_bilineal
   if (sigmaY_MPa === undefined) return (signo * sigmaAbs) / E_MPa;
-  if (sigmaAbs <= sigmaY_MPa) return (signo * sigmaAbs) / E_MPa;
   const p = parametrosCurvaBilineal(material);
+  if (p?.exponenteRO !== undefined) {
+    if (sigmaAbs > p.sigmaU) return undefined;
+    return signo * (sigmaAbs / E_MPa + OFFSET_CONVENCIONAL * (sigmaAbs / p.sigmaY) ** p.exponenteRO);
+  }
+  if (sigmaAbs <= sigmaY_MPa) return (signo * sigmaAbs) / E_MPa;
   if (!p) return undefined; // meseta sin límite superior conocido: no invertible más allá de σY
   if (sigmaAbs > p.sigmaU) return undefined;
-  const Ep = (p.sigmaU - p.sigmaY) / (p.epsUTS - p.epsPlateauFin);
-  return signo * (p.epsPlateauFin + (sigmaAbs - p.sigmaY) / Ep);
+  const x = 1 - (1 - (sigmaAbs - p.sigmaY) / (p.sigmaU - p.sigmaY)) ** (1 / EXPONENTE_ENDURECIMIENTO);
+  return signo * (p.epsPlateauFin + x * (p.epsUTS - p.epsPlateauFin));
 }
 
 /**

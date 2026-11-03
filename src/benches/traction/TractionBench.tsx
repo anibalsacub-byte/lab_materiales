@@ -445,7 +445,8 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
           </div>
         </section>
 
-        <section className="lab-panel">
+        {/* Columna de operación: curva, lecturas, mandos de la máquina y datos en vivo (la tabla ocupa el alto restante) */}
+        <section className="lab-panel panel-columna">
           <div className="lab-panel-titulo">Curva esfuerzo–deformación</div>
           <GraficoEnsayo
             id={ID_GRAFICO}
@@ -491,13 +492,6 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
               { etiqueta: 'Deformación', valor: typeof ext === 'number' ? fmt(ext / L, 4) : '—', unidad: 'mm/mm' },
             ]}
           />
-        </section>
-      </div>
-
-      {/* Fila 2: control y material */}
-      <div className="lab-grid">
-        <section className="lab-panel">
-          <div className="lab-panel-titulo">Panel de control</div>
           <div className="controles-principales">
             {estado === 'desmontada' ? (
               <button className="btn-grande btn-montar" onClick={() => setEstado('montada')} disabled={!seccion}>Montar probeta</button>
@@ -518,6 +512,49 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
               Descargar
             </button>
           </div>
+          <div className="datos-vivo">
+            <div className="lab-panel-titulo">Datos adquiridos ({sesion.mediciones.length})</div>
+            {sesion.mediciones.length === 0 ? (
+              <p className="nota">
+                Al iniciar el ensayo, el sistema registra un punto por segundo (o antes, si la carga cambia más de un 2 %).
+                Con la máquina en pausa puede registrar puntos manualmente.
+              </p>
+            ) : (
+              <div className="tabla-scroll tabla-relleno" ref={tablaRef}>
+                <table className="tabla-datos">
+                  <thead>
+                    <tr><th>#</th><th>t (s)</th><th>Carga (kN)</th><th>Extensión (mm)</th><th>ε transversal</th></tr>
+                  </thead>
+                  <tbody>
+                    {sesion.mediciones.map((m, i) => (
+                      <tr
+                        key={m.id}
+                        onClick={() => setSeleccion(i)}
+                        className={`${i === seleccion ? 'fila-seleccionada' : ''} ${s.verdaderos[i]?.manual ? 'fila-manual' : ''}`}
+                      >
+                        <td>{i + 1}{s.verdaderos[i]?.manual ? ' ✎' : ''}</td>
+                        <td>{valorLectura(m.lecturas.tiempo, 2)}</td>
+                        <td>{m.lecturas.fuerza.valor === null ? 'OVL' : fmt(m.lecturas.fuerza.valor / 1000, 3)}</td>
+                        <td>{valorLectura(m.lecturas.alargamiento, 3)}</td>
+                        <td>{valorLectura(m.lecturas.deformacionTransversal, 5)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="fila" style={{ marginTop: 10 }}>
+              <button className="primario" onClick={registrarManual} disabled={!(estado === 'montada' || estado === 'pausada')}>Registrar punto</button>
+              <span className="nota" style={{ margin: 0 }}>Haga clic en una fila para analizarla en «Calcule y compare».</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {/* Fila 2: control y material */}
+      <div className="lab-grid">
+        <section className="lab-panel">
+          <div className="lab-panel-titulo">Configuración del ensayo</div>
 
           <div className="fila-controles">
             <Segmentado
@@ -592,65 +629,6 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
       {/* Fila 3: datos y análisis */}
       <div className="lab-grid">
         <section className="lab-panel">
-          <div className="lab-panel-titulo">Datos adquiridos ({sesion.mediciones.length})</div>
-          {sesion.mediciones.length === 0 ? (
-            <p className="nota">
-              Al iniciar el ensayo, el sistema registra un punto por segundo (o antes, si la carga cambia más de un 2 %).
-              Con la máquina en pausa puede registrar puntos manualmente.
-            </p>
-          ) : (
-            <div className="tabla-scroll" ref={tablaRef}>
-              <table className="tabla-datos">
-                <thead>
-                  <tr><th>#</th><th>t (s)</th><th>Carga (kN)</th><th>Extensión (mm)</th><th>ε transversal</th></tr>
-                </thead>
-                <tbody>
-                  {sesion.mediciones.map((m, i) => (
-                    <tr
-                      key={m.id}
-                      onClick={() => setSeleccion(i)}
-                      className={`${i === seleccion ? 'fila-seleccionada' : ''} ${s.verdaderos[i]?.manual ? 'fila-manual' : ''}`}
-                    >
-                      <td>{i + 1}{s.verdaderos[i]?.manual ? ' ✎' : ''}</td>
-                      <td>{valorLectura(m.lecturas.tiempo, 2)}</td>
-                      <td>{m.lecturas.fuerza.valor === null ? 'OVL' : fmt(m.lecturas.fuerza.valor / 1000, 3)}</td>
-                      <td>{valorLectura(m.lecturas.alargamiento, 3)}</td>
-                      <td>{valorLectura(m.lecturas.deformacionTransversal, 5)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <div className="fila" style={{ marginTop: 10 }}>
-            <button className="primario" onClick={registrarManual} disabled={!(estado === 'montada' || estado === 'pausada')}>Registrar punto</button>
-            <span className="nota" style={{ margin: 0 }}>Haga clic en una fila para analizarla.</span>
-          </div>
-        </section>
-
-        <section className="lab-panel">
-          {fracturada && (
-            <>
-              <div className="lab-panel-titulo">Resumen del ensayo</div>
-              <div className="resumen-ensayo">
-                <div className="resumen-item"><div className="r-etiqueta">Carga máxima medida</div><div className="r-valor">{fmt(FmaxMedida / 1000, 2)} kN</div></div>
-                <div className="resumen-item"><div className="r-etiqueta">Resistencia a la tracción σu = Fmáx/A₀</div><div className="r-valor">{fmt(FmaxMedida / A, 1)} MPa</div></div>
-                <div className="resumen-item">
-                  <div className="r-etiqueta">Límite elástico convencional Rp0,2</div>
-                  <div className="r-valor">{rp02 ? `${fmt(rp02.sigma_MPa, 0)} MPa` : 'No aplica (frágil)'}</div>
-                </div>
-                <div className="resumen-item"><div className="r-etiqueta">Alargamiento a la rotura A</div><div className="r-valor">{fmt(alargamientoRotura, 1)} %</div></div>
-                <div className="resumen-item"><div className="r-etiqueta">Deformación total en la rotura</div><div className="r-valor">{fmt(epsF * 100, 1)} %</div></div>
-                <div className="resumen-item"><div className="r-etiqueta">Energía absorbida (tenacidad)</div><div className="r-valor">{fmt(energia, 2)} MJ/m³</div></div>
-              </div>
-              <p className="nota">
-                A = (Lu − Lo)/Lo: alargamiento permanente medido juntando los trozos rotos (se recupera la parte elástica).
-                La energía es el área bajo la curva recorrida.
-              </p>
-              <hr className="separador" />
-            </>
-          )}
-
           <div className="lab-panel-titulo">Calcule y compare</div>
           {!puntoSel || !medSel ? (
             <p className="nota">Seleccione una fila de la tabla. Con la carga y la extensión medidas, calcule σ = F/A₀ y ε = ΔL/Lo; en un punto de la zona elástica también E = σ/ε y ν = −ε_trans/ε.</p>
@@ -697,8 +675,30 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
               )}
             </>
           )}
+        </section>
 
-          <hr className="separador" />
+        <section className="lab-panel">
+          {fracturada && (
+            <>
+              <div className="lab-panel-titulo">Resumen del ensayo</div>
+              <div className="resumen-ensayo">
+                <div className="resumen-item"><div className="r-etiqueta">Carga máxima medida</div><div className="r-valor">{fmt(FmaxMedida / 1000, 2)} kN</div></div>
+                <div className="resumen-item"><div className="r-etiqueta">Resistencia a la tracción σu = Fmáx/A₀</div><div className="r-valor">{fmt(FmaxMedida / A, 1)} MPa</div></div>
+                <div className="resumen-item">
+                  <div className="r-etiqueta">Límite elástico convencional Rp0,2</div>
+                  <div className="r-valor">{rp02 ? `${fmt(rp02.sigma_MPa, 0)} MPa` : 'No aplica (frágil)'}</div>
+                </div>
+                <div className="resumen-item"><div className="r-etiqueta">Alargamiento a la rotura A</div><div className="r-valor">{fmt(alargamientoRotura, 1)} %</div></div>
+                <div className="resumen-item"><div className="r-etiqueta">Deformación total en la rotura</div><div className="r-valor">{fmt(epsF * 100, 1)} %</div></div>
+                <div className="resumen-item"><div className="r-etiqueta">Energía absorbida (tenacidad)</div><div className="r-valor">{fmt(energia, 2)} MJ/m³</div></div>
+              </div>
+              <p className="nota">
+                A = (Lu − Lo)/Lo: alargamiento permanente medido juntando los trozos rotos (se recupera la parte elástica).
+                La energía es el área bajo la curva recorrida.
+              </p>
+              <hr className="separador" />
+            </>
+          )}
           <div className="lab-panel-titulo">Notas</div>
           <textarea
             rows={4}

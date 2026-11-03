@@ -115,6 +115,34 @@ describe('Modelo constitutivo por material', () => {
     }
   });
 
+  it('la curva de los dúctiles es continua y tiene su máximo en (εUTS, σU)', () => {
+    for (const id of ['astm-a36', 'sae-1045', 'al-6061-t6', 'aisi-304', 'laton-c360', 'cobre-c110']) {
+      const m = obtenerMaterial(id)!;
+      const p = parametrosCurvaBilineal(m)!;
+      expect(esfuerzoEnDeformacion(m, p.epsUTS)).toBeCloseTo(p.sigmaU, 3);
+      expect(esfuerzoEnDeformacion(m, p.epsF)).toBeCloseTo(p.sigmaFractura, 6);
+      let maximo = 0;
+      let anterior = 0;
+      for (let i = 1; i <= 2000; i++) {
+        const sigma = esfuerzoEnDeformacion(m, (p.epsF * i) / 2000)!;
+        // Sin saltos: nunca cambia más rápido que la pendiente elástica.
+        expect(Math.abs(sigma - anterior)).toBeLessThanOrEqual(m.propiedades.E_MPa! * (p.epsF / 2000) * 1.0001);
+        maximo = Math.max(maximo, sigma);
+        anterior = sigma;
+      }
+      expect(maximo).toBeLessThanOrEqual(p.sigmaU + 1e-6);
+    }
+  });
+
+  it('sin meseta, el codo de fluencia es redondeado (ya hay algo de deformación plástica antes de σY)', () => {
+    const al = obtenerMaterial('al-6061-t6')!;
+    const E = al.propiedades.E_MPa!;
+    const sigmaY = al.propiedades.sigmaY_MPa!;
+    const eps = deformacionDesdeEsfuerzo(al, 0.95 * sigmaY)!;
+    expect(eps).toBeGreaterThan((0.95 * sigmaY) / E);
+    expect(esfuerzoEnDeformacion(al, eps)).toBeCloseTo(0.95 * sigmaY, 6);
+  });
+
   it('descarga puramente elástica (no supera εY) no deja deformación permanente', () => {
     const a36 = obtenerMaterial('astm-a36')!;
     expect(deformacionPermanenteTrasDescarga(a36, 0.0005)).toBeCloseTo(0, 9);
@@ -212,11 +240,11 @@ describe('limiteElasticoOffset — método del 0,2 %', () => {
     expect(limiteElasticoOffset(a36)!.sigma_MPa).toBeCloseTo(250, 3);
   });
 
-  it('en un aluminio sin meseta, Rp0,2 queda ligeramente por encima de σY', () => {
-    const al = obtenerMaterial('al-6061-t6')!;
-    const rp = limiteElasticoOffset(al)!.sigma_MPa;
-    expect(rp).toBeGreaterThan(al.propiedades.sigmaY_MPa!);
-    expect(rp).toBeLessThan(al.propiedades.sigmaY_MPa! * 1.05);
+  it('en metales sin meseta (Ramberg-Osgood), Rp0,2 recupera el σY de tablas, que es el límite convencional', () => {
+    for (const id of ['al-6061-t6', 'aisi-304', 'laton-c360']) {
+      const m = obtenerMaterial(id)!;
+      expect(limiteElasticoOffset(m)!.sigma_MPa).toBeCloseTo(m.propiedades.sigmaY_MPa!, 0);
+    }
   });
 
   it('un material frágil no tiene límite convencional (rompe antes)', () => {

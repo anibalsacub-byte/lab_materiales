@@ -110,7 +110,7 @@ Requiere Node.js 20+.
 ```bash
 npm install
 npm run dev        # http://localhost:5173 con recarga en caliente
-npm test            # 111 pruebas de validación numérica (vitest)
+npm test            # 113 pruebas de validación numérica (vitest)
 npm run build       # compila TypeScript y genera dist/ para producción
 npm run preview     # sirve dist/ localmente
 ```
@@ -140,9 +140,11 @@ entradas inválidas (áreas, longitudes, secciones y diámetros no físicos).
 
 ## Decisiones técnicas relevantes
 
-- **Modelo constitutivo por material**: elástico-plástico por tramos (metales dúctiles: elástico,
-  meseta de fluencia si el material la presenta, endurecimiento y estricción), frágil (fundición
-  gris, polímeros rígidos, compuestos, impresión 3D) o elástico-lineal, según `material.modelo`.
+- **Modelo constitutivo por material**: elástico-plástico continuo para metales dúctiles (con
+  meseta de fluencia y endurecimiento curvo en los aceros que la presentan; Ramberg-Osgood con
+  codo redondeado y σY = Rp0,2 en los que fluyen de forma continua; estricción con caída
+  parabólica hasta la fractura), frágil (fundición gris, polímeros rígidos, compuestos,
+  impresión 3D) o elástico-lineal, según `material.modelo`.
   En los frágiles cuyos datos no caben en una recta (σU < E·εF) la curva es cóncava,
   σ = σU·[1 − (1 − ε/εF)ⁿ] con n = E·εF/σU: pendiente inicial E, rotura en (εF, σU) sin
   superar nunca σU. Nunca se usa la misma curva para todos los materiales.
