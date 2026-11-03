@@ -1,65 +1,144 @@
-import { useMemo, useState } from 'react';
-import { MaterialSelector } from '../../components/MaterialSelector';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { FichaMaterial } from '../../components/MaterialSelector';
 import { TablaValidacion, FilaValidacion } from '../../components/FilaValidacion';
-import { LecturasPanel } from '../../components/LecturasPanel';
-import { GraficoXY } from '../../components/svg/GraficoXY';
+import { BarraPasos, ChipsMaterial, DisplayDigital, Segmentado, Stepper } from '../../components/lab/LabUI';
+import { GraficoEnsayo, type OpcionesGrafico, type PuntoClave, type RegionGrafico } from '../../components/svg/GraficoEnsayo';
+import { MaquinaUniversalSVG } from '../../components/svg/MaquinaUniversalSVG';
 import { useSesionEnsayo } from '../../trial/useSesionEnsayo';
-import { exportarMedicionesCSV, exportarSesionJSON } from '../../trial/exportar';
+import { exportarMedicionesCSV, exportarSesionJSON, exportarSvgComoPng } from '../../trial/exportar';
 import { obtenerMaterial } from '../../engine/materials';
 import {
+  esfuerzoConHistoria,
   esfuerzoEnDeformacion,
-  deformacionDesdeEsfuerzo,
-  deformacionFluencia,
-  deformacionPermanenteTrasDescarga,
-  deformacionTransversal,
   generarCurvaEsfuerzoDeformacion,
+  limiteElasticoOffset,
   parametrosCurvaBilineal,
+  trabajoDeformacion,
+  type PuntoCurva,
 } from '../../engine/mechanics/axial';
 import { calcularSeccion } from '../../engine/sections';
 import { medir, INSTRUMENTOS, elegirCeldaCarga } from '../../engine/measurement';
-import { TractionSVG } from './TractionSVG';
-import type { LecturaInstrumento } from '../../engine/types';
+import type { CategoriaMaterial, LecturaInstrumento, Material } from '../../engine/types';
 
-const AMPLIFICACION_VISUAL = 25;
-
+type EstadoMaquina = 'desmontada' | 'montada' | 'corriendo' | 'pausada' | 'descargando' | 'fracturada';
 type TipoSeccionLocal = 'circular' | 'rectangular';
-type ModoControl = 'fuerza' | 'epsilon' | 'mm';
+type FactorTiempo = '1' | '10' | '50';
+type PasoJog = '0.001' | '0.01' | '0.1' | '1';
+
+/** Paso de integración del ensayo (s de tiempo simulado). */
+const PASO_SIMULACION = 0.02;
+/** Adquisición automática: un punto por segundo, o antes si la carga cambió más de este porcentaje. */
+const PERIODO_ADQUISICION_S = 1;
+const SALTO_ADQUISICION = 0.02;
+
+const ID_GRAFICO = 'grafico-ensayo-traccion';
+
+const COLORES_PROBETA: Record<CategoriaMaterial, { claro: string; medio: string; oscuro: string }> = {
+  acero_carbono: { claro: '#e4e9ee', medio: '#a9b4bf', oscuro: '#5f6b77' },
+  acero_aleado: { claro: '#dfe5ea', medio: '#9aa6b2', oscuro: '#55606b' },
+  acero_inoxidable: { claro: '#f2f5f8', medio: '#c3ccd4', oscuro: '#7a8692' },
+  aluminio: { claro: '#f4f6f8', medio: '#cfd6dc', oscuro: '#8e99a3' },
+  cobre_aleacion: { claro: '#f6d2a6', medio: '#d08a4e', oscuro: '#8a4f25' },
+  fundicion: { claro: '#9aa1a8', medio: '#6c737a', oscuro: '#3d4349' },
+  polimero: { claro: '#f4f1e6', medio: '#d9d2bb', oscuro: '#a59d84' },
+  impresion_3d: { claro: '#ffcf8a', medio: '#f29b38', oscuro: '#b4651a' },
+  compuesto: { claro: '#5b6168', medio: '#3a3f45', oscuro: '#1f2327' },
+  desconocido: { claro: '#e4e9ee', medio: '#a9b4bf', oscuro: '#5f6b77' },
+};
+
+const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: false, energia: false, cuadricula: true, teorica: false };
+
+interface PuntoVerdadero {
+  eps: number;
+  sigma: number;
+  t: number;
+  manual: boolean;
+}
+
+interface PuntoTraza extends PuntoCurva {
+  /** true si el punto está sobre la curva monótona (no en una descarga/recarga elástica). */
+  envolvente: boolean;
+}
+
+interface EstadoSimulacion {
+  eps: number;
+  epsMax: number;
+  t: number;
+  traza: PuntoTraza[];
+  verdaderos: PuntoVerdadero[];
+  ultimoT: number;
+  ultimoSigma: number;
+}
+
+function simulacionInicial(): EstadoSimulacion {
+  return { eps: 0, epsMax: 0, t: 0, traza: [{ epsilon: 0, sigma_MPa: 0, envolvente: true }], verdaderos: [], ultimoT: -Infinity, ultimoSigma: 0 };
+}
+
+function fmt(v: number, decimales: number): string {
+  // Evita mostrar «-0,00» cuando el ruido de la lectura en vacío es negativo y menor que la resolución.
+  const r = Number(v.toFixed(decimales)) || 0;
+  return r.toLocaleString('es-PE', { minimumFractionDigits: decimales, maximumFractionDigits: decimales });
+}
+
+function deformacionFractura(m: Material): number {
+  const { epsilonF, sigmaU_MPa, E_MPa } = m.propiedades;
+  if (epsilonF !== undefined) return epsilonF;
+  if (sigmaU_MPa !== undefined && E_MPa) return sigmaU_MPa / E_MPa;
+  return 0.02;
+}
+
+/** Velocidad de travesaño sugerida para que el ensayo dure ~1,5 min a tiempo real (orden de ASTM E8). */
+function velocidadSugerida(m: Material, L: number): number {
+  const v = (deformacionFractura(m) * L) / 1.5;
+  return Math.min(Math.max(Math.round(v * 10) / 10, 0.1), 50);
+}
 
 /**
- * A diferencia de compresión, en tracción la fractura SÍ es el comportamiento real que se busca
- * observar (σU y εF de la biblioteca son precisamente los valores de tracción): el límite del
- * ensayo es exactamente εF, así que llevar el control hasta el tope fractura la probeta.
+ * Deformación transversal: ν en la parte elástica, 0,5 en la plástica (el volumen se conserva al
+ * fluir el metal). Es la razón por la que ν solo se mide en la zona elástica.
  */
-function limiteDeformacion(materialId: string): number {
-  const m = obtenerMaterial(materialId);
-  if (!m) return 0.01;
-  const epsF = m.propiedades.epsilonF;
-  return epsF !== undefined ? epsF : 0.02;
+function deformacionTransversalReal(m: Material, eps: number, sigma: number): number {
+  const E = m.propiedades.E_MPa ?? 1;
+  const nu = m.propiedades.nu ?? 0.3;
+  const elastica = sigma / E;
+  const plastica = Math.max(eps - elastica, 0);
+  return -(nu * elastica + 0.5 * plastica);
 }
 
 export function TractionBench({ onVolver }: { onVolver: () => void }) {
-  const { sesion, setMaterial, agregarMedicion, registrarCalculo, registrarConclusiones, marcarProbetaDestruida, reiniciarEnsayo } =
-    useSesionEnsayo('banco-1-traccion', 'sae-1018');
+  const { sesion, agregarMedicion, actualizarConfiguracion, registrarCalculo, registrarConclusiones, marcarProbetaDestruida, reiniciarEnsayo } =
+    useSesionEnsayo('banco-1-traccion', 'astm-a36');
 
+  const [estado, setEstado] = useState<EstadoMaquina>('desmontada');
   const [tipoSeccion, setTipoSeccion] = useState<TipoSeccionLocal>('circular');
-  const [d, setD] = useState(12);
-  const [b, setB] = useState(12);
+  const [d, setD] = useState(12.5);
+  const [b, setB] = useState(12.5);
   const [h, setH] = useState(6);
   const [L, setL] = useState(50);
-
-  const [epsilonObjetivo, setEpsilonObjetivo] = useState(0);
-  const [epsilonMaxAlcanzado, setEpsilonMaxAlcanzado] = useState(0);
-  const [calibradoCelda, setCalibradoCelda] = useState(false);
-  const [calibradoExtensometro, setCalibradoExtensometro] = useState(false);
-  const [calibradoTransversal, setCalibradoTransversal] = useState(false);
-  const [deformacionPermanenteUltima, setDeformacionPermanenteUltima] = useState<number | null>(null);
-  const [epsilonesRegistrados, setEpsilonesRegistrados] = useState<number[]>([]);
-  const [indiceSeleccionado, setIndiceSeleccionado] = useState(0);
+  const [velocidad, setVelocidad] = useState(() => velocidadSugerida(obtenerMaterial('astm-a36')!, 50));
+  const [factorTiempo, setFactorTiempo] = useState<FactorTiempo>('10');
+  const [pasoJog, setPasoJog] = useState<PasoJog>('0.01');
+  const [tarado, setTarado] = useState(false);
+  const [opciones, setOpciones] = useState<OpcionesGrafico>(OPCIONES_INICIALES);
+  const [seleccion, setSeleccion] = useState<number | null>(null);
   const [probetasUsadas, setProbetasUsadas] = useState(1);
-  const [modoControl, setModoControl] = useState<ModoControl>('fuerza');
-  const [mostrarGrafico, setMostrarGrafico] = useState(true);
+  const [, forzarRender] = useState(0);
+
+  const sim = useRef<EstadoSimulacion>(simulacionInicial());
+  const tablaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    document.body.classList.add('modo-lab');
+    return () => document.body.classList.remove('modo-lab');
+  }, []);
 
   const material = obtenerMaterial(sesion.materialId)!;
+  const pc = useMemo(() => parametrosCurvaBilineal(material), [material]);
+  const rp02 = useMemo(() => limiteElasticoOffset(material), [material]);
+  const ductil = material.modelo === 'elastico_plastico_bilineal' && pc !== undefined;
+  const E = material.propiedades.E_MPa ?? 200000;
+  const epsF = deformacionFractura(material);
+  const sigmaU = material.propiedades.sigmaU_MPa ?? E * epsF;
 
   const seccion = useMemo(() => {
     try {
@@ -68,359 +147,559 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
       return null;
     }
   }, [tipoSeccion, d, b, h]);
-
   const A = seccion?.area_mm2 ?? 1;
-  const limiteEps = limiteDeformacion(sesion.materialId);
-  const epsY = deformacionFluencia(material);
+  const celda = elegirCeldaCarga(sigmaU * A);
 
-  const sigmaActual = esfuerzoEnDeformacion(material, epsilonObjetivo) ?? 0;
-  const PActual = sigmaActual * A;
-  const alargamientoActual = epsilonObjetivo * L;
-  const pasoSlider = limiteEps / 500;
-  const progresoEnsayo = limiteEps > 0 ? epsilonObjetivo / limiteEps : 0;
-  const maxMm = limiteEps * L;
-  const pasoSliderMm = pasoSlider * L;
+  const sigmaDe = (eps: number, epsMax: number) => esfuerzoConHistoria(material, eps, epsMax) ?? 0;
 
-  const sigmaMaxPosible = material.propiedades.sigmaU_MPa ?? esfuerzoEnDeformacion(material, limiteEps) ?? material.propiedades.sigmaY_MPa ?? (material.propiedades.E_MPa ?? 200000) * limiteEps;
-  const celdaCarga = elegirCeldaCarga(sigmaMaxPosible * A);
-  const maxFuerza = sigmaMaxPosible * A;
-  const pasoFuerza = maxFuerza / 500;
-
-  const parametrosCurva = useMemo(() => parametrosCurvaBilineal(material), [material]);
-
-  const curvaReferencia = useMemo(() => {
-    const base = generarCurvaEsfuerzoDeformacion(material, 150, limiteEps);
-    if (!material.mesetaFluencia || !parametrosCurva) return base.map((p) => ({ x: p.epsilon, y: p.sigma_MPa }));
-    // Ondulación cosmética de la meseta (efecto Lüders), solo visual: no altera el motor físico.
-    return base.map((p) => {
-      let y = p.sigma_MPa;
-      if (p.epsilon >= parametrosCurva.epsY && p.epsilon <= parametrosCurva.epsPlateauFin) {
-        const t = (p.epsilon - parametrosCurva.epsY) / (parametrosCurva.epsPlateauFin - parametrosCurva.epsY || 1);
-        y += Math.sin(t * Math.PI * 6) * parametrosCurva.sigmaY * 0.012;
-      }
-      return { x: p.epsilon, y };
-    });
-  }, [material, limiteEps, parametrosCurva]);
-  const puntosGraficados = epsilonesRegistrados.map((eps) => ({ x: eps, y: esfuerzoEnDeformacion(material, eps) ?? 0 }));
-
-  const estadoSvg: 'elastico' | 'plastico' | 'destruida' = sesion.probetaDestruida
-    ? 'destruida'
-    : epsY !== undefined && epsilonObjetivo > epsY
-      ? 'plastico'
-      : 'elastico';
-
-  /** La probeta se desestabiliza y fractura: el esfuerzo cae a cero porque ya no hay sección intacta. */
-  function dispararFractura() {
-    const epsF = material.propiedades.epsilonF;
-    if (epsF === undefined) return;
-    const epsFractura = epsF * 1.02;
-    setEpsilonObjetivo(epsFractura);
-    setEpsilonMaxAlcanzado(epsFractura);
-    marcarProbetaDestruida();
-  }
-
-  function manejarSlider(v: number) {
-    if (sesion.probetaDestruida) return;
-    const vAcotado = Math.min(Math.max(v, 0), limiteEps);
-    const epsF = material.propiedades.epsilonF;
-    // Llevar el control hasta el tope del ensayo es, físicamente, llevar la probeta hasta su
-    // deformación de fractura: en vez de quedarse "congelada" justo antes, rompe de verdad.
-    if (epsF !== undefined && vAcotado >= limiteEps * 0.999) {
-      dispararFractura();
-      return;
-    }
-    setEpsilonObjetivo(vAcotado);
-    setEpsilonMaxAlcanzado((prev) => Math.max(prev, vAcotado));
-    setDeformacionPermanenteUltima(null);
-  }
-
-  function ajustarPaso(signo: 1 | -1) {
-    manejarSlider(epsilonObjetivo + signo * pasoSlider);
-  }
-
-  function manejarSliderFuerza(P: number) {
-    const sigmaObjetivo = P / A;
-    // En control por fuerza, llegar al esfuerzo último es inestable: la máquina no puede sostener
-    // más carga ahí (empieza la estricción) y en la práctica la probeta rompe casi de inmediato.
-    if (sigmaMaxPosible > 0 && sigmaObjetivo >= sigmaMaxPosible * 0.999) {
-      dispararFractura();
-      return;
-    }
-    const eps = deformacionDesdeEsfuerzo(material, sigmaObjetivo);
-    manejarSlider(eps ?? limiteEps);
-  }
-
-  function manejarDescargar() {
-    if (epsilonObjetivo <= 0) return;
-    const permanente = deformacionPermanenteTrasDescarga(material, epsilonMaxAlcanzado);
-    setDeformacionPermanenteUltima(permanente);
-    setEpsilonObjetivo(0);
-  }
-
-  function manejarFalla() {
-    dispararFractura();
-  }
-
-  function manejarNuevaProbeta() {
-    reiniciarEnsayo();
-    setEpsilonObjetivo(0);
-    setEpsilonMaxAlcanzado(0);
-    setDeformacionPermanenteUltima(null);
-    setEpsilonesRegistrados([]);
-    setIndiceSeleccionado(0);
-    setProbetasUsadas((n) => n + 1);
-  }
-
-  function registrarPunto() {
-    const sigmaVerdadero = esfuerzoEnDeformacion(material, epsilonObjetivo);
-    if (sigmaVerdadero === undefined) return;
-    const PVerdadero = sigmaVerdadero * A;
-    const alargVerdadero = epsilonObjetivo * L;
-    const epsTransVerdadero = deformacionTransversal(epsilonObjetivo, material.propiedades.nu ?? 0);
-    const opciones = (id: string) => ({ semillaEnsayo: sesion.semilla, indicePunto: sesion.mediciones.length, calibrado: id === 'fuerza' ? calibradoCelda : id === 'alargamiento' ? calibradoExtensometro : calibradoTransversal });
-
-    const lecturas: Record<string, LecturaInstrumento> = {
-      fuerza: medir(PVerdadero, celdaCarga, opciones('fuerza')),
-      alargamiento: medir(alargVerdadero, INSTRUMENTOS.comparadorDigital25mm, opciones('alargamiento')),
-      deformacionTransversal: medir(epsTransVerdadero, INSTRUMENTOS.extensometroTransversal, opciones('deformacionTransversal')),
+  /** Lecturas de los tres instrumentos para un estado verdadero dado (con su ruido reproducible). */
+  function leer(eps: number, sigma: number, indicePunto: number): Record<string, LecturaInstrumento> {
+    const op = { semillaEnsayo: sesion.semilla, indicePunto, calibrado: tarado };
+    return {
+      fuerza: medir(sigma * A, celda, op),
+      alargamiento: medir(eps * L, INSTRUMENTOS.extensometroAxial50, op),
+      deformacionTransversal: medir(deformacionTransversalReal(material, eps, sigma), INSTRUMENTOS.extensometroTransversal, op),
     };
-    agregarMedicion(lecturas);
-    setEpsilonesRegistrados((arr) => [...arr, epsilonObjetivo]);
-    setIndiceSeleccionado(sesion.mediciones.length);
   }
 
-  const puntoRef = epsilonesRegistrados[indiceSeleccionado];
-  const sigmaRef = puntoRef !== undefined ? esfuerzoEnDeformacion(material, puntoRef) : undefined;
-  const ERef = material.propiedades.E_MPa;
-  const nuRef = material.propiedades.nu;
-  const hayCalculo = sesion.calculosEstudiante.sigma !== undefined || sesion.calculosEstudiante.epsilon !== undefined || sesion.calculosEstudiante.E !== undefined || sesion.calculosEstudiante.nu !== undefined;
+  function adquirir(manual: boolean) {
+    const s = sim.current;
+    const sigma = estado === 'fracturada' ? 0 : sigmaDe(s.eps, s.epsMax);
+    const tiempo: LecturaInstrumento = { valor: Number(s.t.toFixed(2)), unidad: 's', incertidumbre: 0, fueraDeRango: false, advertencias: [] };
+    agregarMedicion({ tiempo, ...leer(s.eps, sigma, s.verdaderos.length) });
+    s.verdaderos.push({ eps: s.eps, sigma, t: s.t, manual });
+    s.ultimoT = s.t;
+    s.ultimoSigma = sigma;
+  }
+
+  function agregarTraza(sigma: number) {
+    const s = sim.current;
+    const ultimo = s.traza[s.traza.length - 1];
+    const envolvente = s.eps >= s.epsMax - 1e-12;
+    if (Math.abs(s.eps - ultimo.epsilon) > epsF / 800 || Math.abs(sigma - ultimo.sigma_MPa) > 0.004 * sigmaU || envolvente !== ultimo.envolvente) {
+      s.traza.push({ epsilon: s.eps, sigma_MPa: sigma, envolvente });
+    }
+  }
+
+  function fracturar() {
+    const s = sim.current;
+    s.eps = epsF;
+    s.epsMax = epsF;
+    const sigmaRotura = esfuerzoEnDeformacion(material, epsF) ?? 0;
+    s.traza.push({ epsilon: epsF, sigma_MPa: sigmaRotura, envolvente: true }, { epsilon: epsF, sigma_MPa: 0, envolvente: true });
+    // La máquina registra el último punto con carga antes de detectar la caída de fuerza.
+    const tiempo: LecturaInstrumento = { valor: Number(s.t.toFixed(2)), unidad: 's', incertidumbre: 0, fueraDeRango: false, advertencias: [] };
+    agregarMedicion({ tiempo, ...leer(epsF, sigmaRotura, s.verdaderos.length) });
+    s.verdaderos.push({ eps: epsF, sigma: sigmaRotura, t: s.t, manual: false });
+    marcarProbetaDestruida();
+    setEstado('fracturada');
+  }
+
+  /**
+   * Avanza el ensayo `dt` segundos de tiempo simulado, con el travesaño a velocidad constante
+   * (control por desplazamiento, como una máquina universal real). Devuelve qué pasó.
+   */
+  function simular(dt: number, descargando: boolean): 'sigue' | 'fractura' | 'descargada' {
+    const s = sim.current;
+    let restante = dt;
+    while (restante > 1e-9) {
+      const paso = Math.min(PASO_SIMULACION, restante);
+      restante -= paso;
+      s.t += paso;
+      const dEps = ((velocidad / 60) * paso) / L;
+      if (!descargando) {
+        s.eps += dEps;
+        if (s.eps >= epsF) return 'fractura';
+        s.epsMax = Math.max(s.epsMax, s.eps);
+      } else {
+        s.eps -= dEps;
+        const epsPermanente = Math.max(s.epsMax - sigmaDe(s.epsMax, s.epsMax) / E, 0);
+        if (s.eps <= epsPermanente) {
+          s.eps = epsPermanente;
+          agregarTraza(0);
+          adquirir(false);
+          return 'descargada';
+        }
+      }
+      const sigma = sigmaDe(s.eps, s.epsMax);
+      agregarTraza(sigma);
+      if (s.t - s.ultimoT >= PERIODO_ADQUISICION_S || Math.abs(sigma - s.ultimoSigma) >= SALTO_ADQUISICION * sigmaU) adquirir(false);
+    }
+    return 'sigue';
+  }
+
+  // El bucle de animación lee siempre la versión más reciente de `simular` (velocidad, material…).
+  const simularRef = useRef(simular);
+  simularRef.current = simular;
+  const fracturarRef = useRef(fracturar);
+  fracturarRef.current = fracturar;
+  const factorRef = useRef(Number(factorTiempo));
+  factorRef.current = Number(factorTiempo);
+
+  useEffect(() => {
+    if (estado !== 'corriendo' && estado !== 'descargando') return;
+    let id = 0;
+    let previo = performance.now();
+    const cuadro = (ahora: number) => {
+      const dtReal = Math.min((ahora - previo) / 1000, 0.1);
+      previo = ahora;
+      const r = simularRef.current(dtReal * factorRef.current, estado === 'descargando');
+      forzarRender((n) => n + 1);
+      if (r === 'fractura') return fracturarRef.current();
+      if (r === 'descargada') return setEstado('pausada');
+      id = requestAnimationFrame(cuadro);
+    };
+    id = requestAnimationFrame(cuadro);
+    return () => cancelAnimationFrame(id);
+  }, [estado]);
+
+  // Mientras el ensayo corre, la tabla sigue al último dato adquirido.
+  useEffect(() => {
+    if ((estado === 'corriendo' || estado === 'descargando') && tablaRef.current) tablaRef.current.scrollTop = tablaRef.current.scrollHeight;
+  }, [sesion.mediciones.length, estado]);
+
+  // ---------- Acciones de la máquina ----------
+
+  function nuevaProbeta(materialId?: string) {
+    sim.current = simulacionInicial();
+    reiniciarEnsayo(materialId);
+    setEstado('desmontada');
+    setTarado(false);
+    setSeleccion(null);
+  }
+
+  function cambiarMaterial(id: string) {
+    nuevaProbeta(id);
+    setVelocidad(velocidadSugerida(obtenerMaterial(id)!, L));
+  }
+
+  function iniciar() {
+    if (sim.current.eps === 0) actualizarConfiguracion({ seccion: tipoSeccion, d_mm: d, b_mm: b, h_mm: h, L0_mm: L, A0_mm2: A, velocidad_mm_min: velocidad, celdaCarga: celda.nombre });
+    setEstado('corriendo');
+  }
+
+  /** Movimiento manual del travesaño (jog), con la máquina detenida. */
+  function jog(signo: 1 | -1) {
+    const s = sim.current;
+    const nuevo = Math.max(s.eps + (signo * Number(pasoJog)) / L, 0);
+    if (nuevo >= epsF) {
+      s.eps = nuevo;
+      fracturar();
+      return;
+    }
+    s.eps = nuevo;
+    s.epsMax = Math.max(s.epsMax, nuevo);
+    agregarTraza(sigmaDe(s.eps, s.epsMax));
+    if (estado === 'montada') setEstado('pausada');
+    forzarRender((n) => n + 1);
+  }
+
+  function registrarManual() {
+    adquirir(true);
+    setSeleccion(sim.current.verdaderos.length - 1);
+    forzarRender((n) => n + 1);
+  }
+
+  // ---------- Estado derivado para la vista ----------
+
+  const s = sim.current;
+  const fracturada = estado === 'fracturada';
+  const enMovimiento = estado === 'corriendo' || estado === 'descargando';
+  const montada = estado !== 'desmontada';
+  const sigmaActual = fracturada ? 0 : sigmaDe(s.eps, s.epsMax);
+
+  const lecturaVivo = montada ? leer(s.eps, sigmaActual, 100000 + Math.floor(s.t * 10)) : null;
+  const F = lecturaVivo?.fuerza.valor;
+  const ext = lecturaVivo?.alargamiento.valor;
+  const displayCarga = F === null || F === undefined ? (montada ? 'OVL' : '—') : fmt(F / 1000, 2);
+  const displayExt = ext === null || ext === undefined ? (montada ? 'OVL' : '—') : fmt(ext, 3);
+
+  const k = Math.min(25, 0.6 / epsF);
+  const colorProbeta = COLORES_PROBETA[material.categoria];
+  const estriccion = ductil && pc ? Math.min(Math.max((s.epsMax - pc.epsUTS) / (pc.epsF - pc.epsUTS), 0), 1) : 0;
+
+  const regimen = (() => {
+    if (!montada) return '—';
+    if (fracturada) return ductil ? 'Fractura dúctil (copa y cono)' : 'Fractura frágil';
+    if (s.eps < s.epsMax - 1e-9) return 'Descarga / recarga elástica';
+    if (!ductil || !pc) return 'Sin fluencia — comportamiento frágil';
+    if (s.eps <= pc.epsY) return 'Elástico';
+    if (s.eps <= pc.epsPlateauFin) return 'Fluencia (meseta)';
+    if (s.eps <= pc.epsUTS) return 'Endurecimiento por deformación';
+    return 'Estricción';
+  })();
+
+  const textoEstado: Record<EstadoMaquina, string> = {
+    desmontada: 'Sin probeta — elija material y geometría, luego monte la probeta',
+    montada: 'Probeta montada en las mordazas — lista para ensayar',
+    corriendo: `En marcha · travesaño a ${fmt(velocidad, 1)} mm/min`,
+    pausada: 'En pausa — puede mover el travesaño manualmente',
+    descargando: `Descargando · travesaño a ${fmt(velocidad, 1)} mm/min`,
+    fracturada: 'Probeta fracturada — la máquina detectó la caída de carga',
+  };
+
+  // Gráfico
+  const ondular = (eps: number, sigma: number, envolvente: boolean) => {
+    // Ondulación cosmética de la meseta (bandas de Lüders): solo visual, el motor no la usa.
+    if (!envolvente || !pc || !material.mesetaFluencia || eps < pc.epsY || eps > pc.epsPlateauFin) return sigma;
+    const t = (eps - pc.epsY) / (pc.epsPlateauFin - pc.epsY || 1);
+    return sigma + Math.sin(t * Math.PI * 6) * pc.sigmaY * 0.012;
+  };
+  const traza = s.traza.map((p) => ({ x: p.epsilon, y: ondular(p.epsilon, p.sigma_MPa, p.envolvente) }));
+  const referencia = useMemo(() => generarCurvaEsfuerzoDeformacion(material, 300, epsF).map((p) => ({ x: p.epsilon, y: p.sigma_MPa })), [material, epsF]);
+
+  const regiones: RegionGrafico[] = [];
+  if (pc && ductil) {
+    const tramos: RegionGrafico[] = [
+      { desde: 0, hasta: pc.epsY, nombre: 'Elástica', color: '#4f9dff' },
+      ...(pc.epsPlateauFin > pc.epsY ? [{ desde: pc.epsY, hasta: pc.epsPlateauFin, nombre: 'Fluencia', color: '#f0b429' }] : []),
+      { desde: pc.epsPlateauFin, hasta: pc.epsUTS, nombre: 'Endurecimiento', color: '#3ecf8e' },
+      { desde: pc.epsUTS, hasta: pc.epsF, nombre: 'Estricción', color: '#ff6b6b' },
+    ];
+    for (const r of tramos) if (r.desde < s.epsMax) regiones.push({ ...r, hasta: Math.min(r.hasta, s.epsMax) });
+  } else if (s.epsMax > 0) {
+    regiones.push({ desde: 0, hasta: s.epsMax, nombre: 'Sin fluencia (frágil)', color: '#4f9dff' });
+  }
+
+  const puntosClave: PuntoClave[] = [];
+  if (pc && ductil && material.mesetaFluencia && s.epsMax >= pc.epsY) puntosClave.push({ x: pc.epsY, y: pc.sigmaY, etiqueta: `σy = ${fmt(pc.sigmaY, 0)} MPa`, color: '#f0b429' });
+  if (pc && ductil && s.epsMax >= pc.epsUTS) puntosClave.push({ x: pc.epsUTS, y: pc.sigmaU, etiqueta: `σu = ${fmt(pc.sigmaU, 0)} MPa`, color: '#3ecf8e' });
+  if (fracturada) {
+    const sigmaRotura = esfuerzoEnDeformacion(material, epsF) ?? 0;
+    puntosClave.push({ x: epsF, y: sigmaRotura, etiqueta: ductil ? 'Fractura' : `Fractura · σu = ${fmt(sigmaRotura, 0)} MPa`, color: '#ff5c5c' });
+  }
+  const lineaOffset = rp02 && s.epsMax >= rp02.epsilon
+    ? { desde: { x: 0.002, y: 0 }, hasta: { x: rp02.epsilon, y: rp02.sigma_MPa }, etiqueta: `Rp0,2 = ${fmt(rp02.sigma_MPa, 0)} MPa` }
+    : undefined;
+  const energia = trabajoDeformacion(s.traza);
+  const registrados = s.verdaderos.filter((p) => p.manual).map((p) => ({ x: p.eps, y: p.sigma }));
+  const yMax = Math.max(sigmaU, pc?.sigmaY ?? 0) * 1.12;
+
+  // Resumen tras la fractura
+  const fuerzas = sesion.mediciones.map((m) => m.lecturas.fuerza?.valor).filter((v): v is number => typeof v === 'number');
+  const FmaxMedida = fuerzas.length ? Math.max(...fuerzas) : 0;
+  const sigmaRotura = esfuerzoEnDeformacion(material, epsF) ?? 0;
+  const alargamientoRotura = Math.max(epsF - sigmaRotura / E, 0) * 100;
+
+  // Calcule y compare
+  const puntoSel = seleccion !== null ? s.verdaderos[seleccion] : undefined;
+  const medSel = seleccion !== null ? sesion.mediciones[seleccion] : undefined;
+  // E y ν solo se pueden obtener de un punto sobre el tramo inicial σ ≈ E·ε (sin deformación permanente).
+  // La tolerancia del 5 % admite el tramo bajo de los frágiles (fundición gris: hasta ~25 % de σu,
+  // donde la norma toma su módulo secante).
+  const elasticoSel = puntoSel !== undefined && puntoSel.sigma > 0 && Math.abs(puntoSel.sigma - E * puntoSel.eps) <= 0.05 * puntoSel.sigma && (!pc || puntoSel.eps <= pc.epsY * 0.98);
+  const hayCalculo = ['sigma', 'epsilon', 'E', 'nu'].some((v) => sesion.calculosEstudiante[v] !== undefined);
+
+  const pasoActual = estado === 'desmontada' ? 2 : fracturada ? 4 : 3;
+  const valorLectura = (l?: LecturaInstrumento, dec = 3) => (!l ? '—' : l.valor === null ? 'OVL' : fmt(l.valor, dec));
 
   return (
-    <div>
+    <div className="lab">
       <div className="topbar">
         <div>
-          <div className="titulo">Banco 1 — Tracción axial</div>
-          <div className="subtitulo">Configure el ensayo, estire la probeta y observe la respuesta en tiempo real, hasta la fractura.</div>
+          <div className="titulo">Banco 1 — Ensayo de tracción</div>
+          <div className="subtitulo">Máquina universal de ensayos con control por desplazamiento, adquisición automática de datos y curva σ–ε en tiempo real.</div>
         </div>
         <button className="volver" onClick={onVolver}>← Volver al catálogo</button>
       </div>
 
-      <div className="banco-grid">
-        {/* Zona A: configuración */}
-        <div className="zona-a panel">
-          <div className="zona-etiqueta">Zona A · Configuración</div>
-          <MaterialSelector materialId={sesion.materialId} onChange={setMaterial} />
+      <BarraPasos pasos={['Material', 'Geometría', 'Montaje', 'Ensayo', 'Resultados']} actual={pasoActual} />
 
-          <div className="campo">
-            <label>Tipo de sección</label>
-            <select value={tipoSeccion} onChange={(e) => setTipoSeccion(e.target.value as TipoSeccionLocal)}>
-              <option value="circular">Circular maciza</option>
-              <option value="rectangular">Rectangular</option>
-            </select>
-          </div>
-          {tipoSeccion === 'circular' ? (
-            <div className="campo">
-              <label>Diámetro d (mm)</label>
-              <input type="number" value={d} min={3} max={30} onChange={(e) => setD(Number(e.target.value))} />
-            </div>
-          ) : (
-            <div className="fila campo">
-              <div>
-                <label>Base b (mm)</label>
-                <input type="number" value={b} min={3} max={30} onChange={(e) => setB(Number(e.target.value))} />
-              </div>
-              <div>
-                <label>Espesor h (mm)</label>
-                <input type="number" value={h} min={2} max={20} onChange={(e) => setH(Number(e.target.value))} />
-              </div>
-            </div>
-          )}
-          <div className="campo">
-            <label>Longitud calibrada L (mm)</label>
-            <input type="number" value={L} min={20} max={200} onChange={(e) => setL(Number(e.target.value))} />
-          </div>
-
-          <hr className="separador" />
-          <p className="nota">A = {A.toFixed(1)} mm²</p>
-          <p className="nota">Probetas usadas en esta sesión: {probetasUsadas}</p>
-        </div>
-
-        {/* Zona B: representación del banco */}
-        <div className="zona-b panel">
-          <div className="zona-etiqueta">Zona B · Banco de ensayo</div>
-          <TractionSVG
-            epsilon={epsilonObjetivo}
-            amplificacion={AMPLIFICACION_VISUAL}
-            estado={estadoSvg}
-            alargamientoMm={alargamientoActual}
-            progreso={progresoEnsayo}
-            diametroMm={tipoSeccion === 'circular' ? d : undefined}
+      {/* Fila 1: máquina y gráfico */}
+      <div className="lab-grid">
+        <section className="lab-panel">
+          <div className="lab-panel-titulo">Máquina universal de ensayos</div>
+          <MaquinaUniversalSVG
+            alargamientoVisual={Math.min(k * s.eps, 0.6)}
+            alargamientoUniformeVisual={Math.min(k * Math.min(s.eps, pc?.epsUTS ?? s.eps), 0.6)}
+            estriccion={estriccion}
+            fracturada={fracturada}
+            tipoFractura={ductil ? 'ductil' : 'fragil'}
+            mordazasCerradas={montada}
+            enMarcha={enMovimiento}
+            seccion={tipoSeccion}
+            displayCarga={displayCarga}
+            displayExtension={displayExt}
+            cotaLo={`Lo = ${fmt(L, 1)} mm`}
+            cotaSeccion={tipoSeccion === 'circular' ? `Ø ${fmt(d, 1)}` : `${fmt(b, 1)} × ${fmt(h, 1)}`}
+            colorProbeta={colorProbeta}
+            onParadaEmergencia={() => enMovimiento && setEstado('pausada')}
           />
-        </div>
-
-        {/* Zona C: instrumentación y control */}
-        <div className="zona-c panel">
-          <div className="zona-etiqueta">Zona C · Instrumentación y control</div>
-          <div className="fila campo">
-            <button onClick={() => setCalibradoCelda(true)} disabled={calibradoCelda}>Cero: celda de carga</button>
-            <button onClick={() => setCalibradoExtensometro(true)} disabled={calibradoExtensometro}>Cero: extensómetro</button>
-            <button onClick={() => setCalibradoTransversal(true)} disabled={calibradoTransversal}>Cero: ext. transversal</button>
+          <div className="maquina-estado">
+            <div>
+              <span className={`punto ${enMovimiento ? 'marcha' : fracturada ? 'rota' : estado === 'pausada' ? 'pausa' : ''}`} />
+              <strong>{textoEstado[estado]}</strong>
+            </div>
+            <div>Régimen: <strong>{regimen}</strong></div>
+            <div>
+              Lo {fmt(L, 1)} → {fmt(L * (1 + s.eps), 2)} mm (+{fmt(s.eps * 100, 2)} %) · t = {fmt(s.t, 1)} s · escala gráfica del alargamiento ×{fmt(k, 1)}
+            </div>
+            {montada && !tarado && !fracturada && <div className="texto-alerta">⚠ Instrumentos sin tarar: las lecturas incluyen un error de cero.</div>}
           </div>
-          <div className="campo">
-            <div className="fila" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <label style={{ marginBottom: 0 }}>
-                {modoControl === 'fuerza' && <>Fuerza aplicada P = {PActual.toFixed(0)} N (máx.: {maxFuerza.toFixed(0)} N)</>}
-                {modoControl === 'epsilon' && <>Deformación controlada ε = {epsilonObjetivo.toFixed(5)} (máx.: {limiteEps.toFixed(4)})</>}
-                {modoControl === 'mm' && <>Alargamiento controlado ΔL = {alargamientoActual.toFixed(4)} mm (máx.: {maxMm.toFixed(4)} mm)</>}
+        </section>
+
+        <section className="lab-panel">
+          <div className="lab-panel-titulo">Curva esfuerzo–deformación</div>
+          <GraficoEnsayo
+            id={ID_GRAFICO}
+            titulo="Curva esfuerzo–deformación (ingenieril)"
+            subtitulo={`${material.nombre}${material.condicion ? ` (${material.condicion})` : ''} — tracción`}
+            xEtiqueta="Deformación unitaria ε (mm/mm)"
+            yEtiqueta="Esfuerzo σ (MPa)"
+            xMax={epsF * 1.08}
+            yMax={yMax}
+            traza={traza}
+            referencia={referencia}
+            regiones={regiones}
+            puntosClave={puntosClave}
+            lineaOffset={lineaOffset}
+            energia={energia}
+            puntoActual={montada ? { x: s.eps, y: ondular(s.eps, sigmaActual, s.eps >= s.epsMax), fracturado: fracturada } : undefined}
+            registrados={registrados}
+            opciones={opciones}
+          />
+          <div className="opciones-grafico">
+            {(
+              [
+                ['etiquetas', 'Etiquetas'],
+                ['puntos', 'Puntos característicos'],
+                ['regiones', 'Regiones'],
+                ['offset', 'Offset 0,2 %'],
+                ['energia', 'Energía'],
+                ['cuadricula', 'Cuadrícula'],
+                ['teorica', 'Curva teórica'],
+              ] as [keyof OpcionesGrafico, string][]
+            ).map(([clave, texto]) => (
+              <label key={clave}>
+                <input type="checkbox" checked={opciones[clave]} onChange={(e) => setOpciones({ ...opciones, [clave]: e.target.checked })} />
+                {texto}
               </label>
-              <div className="selector-modo" role="group" aria-label="Variable de control">
-                <button className={modoControl === 'fuerza' ? 'primario' : ''} onClick={() => setModoControl('fuerza')} disabled={sesion.probetaDestruida}>N</button>
-                <button className={modoControl === 'epsilon' ? 'primario' : ''} onClick={() => setModoControl('epsilon')} disabled={sesion.probetaDestruida}>ε</button>
-                <button className={modoControl === 'mm' ? 'primario' : ''} onClick={() => setModoControl('mm')} disabled={sesion.probetaDestruida}>mm</button>
-              </div>
-            </div>
-            <div className="control-paso">
-              <button className="boton-paso" onClick={() => ajustarPaso(-1)} disabled={sesion.probetaDestruida || epsilonObjetivo <= 0} aria-label="Disminuir carga">−</button>
-              {modoControl === 'fuerza' && (
-                <input type="range" min={0} max={maxFuerza} step={pasoFuerza} value={PActual} onChange={(e) => manejarSliderFuerza(Number(e.target.value))} disabled={sesion.probetaDestruida} />
-              )}
-              {modoControl === 'epsilon' && (
-                <input type="range" min={0} max={limiteEps} step={pasoSlider} value={epsilonObjetivo} onChange={(e) => manejarSlider(Number(e.target.value))} disabled={sesion.probetaDestruida} />
-              )}
-              {modoControl === 'mm' && (
-                <input type="range" min={0} max={maxMm} step={pasoSliderMm} value={alargamientoActual} onChange={(e) => manejarSlider(Number(e.target.value) / L)} disabled={sesion.probetaDestruida} />
-              )}
-              <button className="boton-paso" onClick={() => ajustarPaso(1)} disabled={sesion.probetaDestruida || epsilonObjetivo >= limiteEps} aria-label="Aumentar carga">+</button>
-            </div>
+            ))}
           </div>
-
-          <LecturasPanel
-            lecturas={[
-              { etiqueta: 'Fuerza', valor: PActual.toFixed(0), unidad: 'N' },
-              { etiqueta: 'Esfuerzo σ', valor: sigmaActual.toFixed(2), unidad: 'MPa' },
-              { etiqueta: 'Alargamiento', valor: alargamientoActual.toFixed(4), unidad: 'mm' },
+          <DisplayDigital
+            items={[
+              { etiqueta: 'Carga', valor: displayCarga, unidad: 'kN', alerta: displayCarga === 'OVL' },
+              { etiqueta: 'Extensión', valor: displayExt, unidad: 'mm', alerta: displayExt === 'OVL' },
+              { etiqueta: 'Esfuerzo', valor: typeof F === 'number' ? fmt(F / A, 1) : '—', unidad: 'MPa' },
+              { etiqueta: 'Deformación', valor: typeof ext === 'number' ? fmt(ext / L, 4) : '—', unidad: 'mm/mm' },
             ]}
           />
-          <div className="fila campo">
-            <button className="primario" onClick={registrarPunto} disabled={sesion.probetaDestruida}>Registrar punto</button>
-            <button onClick={manejarDescargar} disabled={epsilonObjetivo <= 0 || sesion.probetaDestruida}>Descargar</button>
-          </div>
-          {deformacionPermanenteUltima !== null && (
-            <p className="advertencia">Deformación permanente tras la descarga: ε_p = {deformacionPermanenteUltima.toFixed(5)}</p>
-          )}
-          <hr className="separador" />
-          <div className="fila">
-            <button className="peligro" onClick={manejarFalla} disabled={sesion.probetaDestruida || material.propiedades.epsilonF === undefined}>
-              Forzar hasta la falla
+        </section>
+      </div>
+
+      {/* Fila 2: control y material */}
+      <div className="lab-grid">
+        <section className="lab-panel">
+          <div className="lab-panel-titulo">Panel de control</div>
+          <div className="controles-principales">
+            {estado === 'desmontada' ? (
+              <button className="btn-grande btn-montar" onClick={() => setEstado('montada')} disabled={!seccion}>Montar probeta</button>
+            ) : (
+              <button className="btn-grande" onClick={() => setEstado('desmontada')} disabled={estado !== 'montada' || s.eps > 0}>Desmontar</button>
+            )}
+            <button className="btn-grande" onClick={() => setTarado(true)} disabled={estado !== 'montada' || tarado || s.eps > 0} title="Pone a cero la celda de carga y los extensómetros antes de cargar">
+              {tarado ? 'Tarado ✓' : 'Cero / tara'}
             </button>
-            <button onClick={manejarNuevaProbeta}>Nueva probeta</button>
+            {enMovimiento ? (
+              <button className="btn-grande btn-pausa" onClick={() => setEstado('pausada')}>Pausa</button>
+            ) : (
+              <button className="btn-grande btn-iniciar" onClick={iniciar} disabled={estado !== 'montada' && estado !== 'pausada'}>
+                {estado === 'pausada' ? 'Continuar' : 'Iniciar'}
+              </button>
+            )}
+            <button className="btn-grande" onClick={() => setEstado('descargando')} disabled={!(estado === 'corriendo' || estado === 'pausada') || sigmaActual <= 0}>
+              Descargar
+            </button>
           </div>
-          {sesion.probetaDestruida && <p className="advertencia">Probeta fracturada. Use «Nueva probeta» para continuar.</p>}
-        </div>
 
-        {/* Zona D: datos y análisis */}
-        <div className="zona-d panel">
-          <div className="zona-etiqueta">Zona D · Datos y análisis</div>
-
-          <label className="fila" style={{ alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" style={{ width: 'auto' }} checked={mostrarGrafico} onChange={(e) => setMostrarGrafico(e.target.checked)} />
-            <span style={{ flex: 'none' }}>Mostrar gráfico σ-ε en vivo</span>
-          </label>
-          {mostrarGrafico && (
-            <GraficoXY
-              curva={curvaReferencia}
-              puntoActual={{ x: epsilonObjetivo, y: sigmaActual }}
-              puntosRegistrados={puntosGraficados}
-              xMax={limiteEps * 1.05}
-              yMax={sigmaMaxPosible}
-              xLabel="ε"
-              yLabel="σ (MPa)"
-              colorActual={sesion.probetaDestruida ? '#ab2d2d' : undefined}
+          <div className="fila-controles">
+            <Segmentado
+              etiqueta="Sección"
+              opciones={[{ valor: 'circular', etiqueta: 'Circular' }, { valor: 'rectangular', etiqueta: 'Rectangular' }]}
+              valor={tipoSeccion}
+              onChange={setTipoSeccion}
+              disabled={montada}
             />
-          )}
-          {sesion.probetaDestruida && (
-            <p className="advertencia">
-              La probeta fracturó: el esfuerzo cae a cero porque ya no hay sección intacta que resista la carga — el
-              punto rojo al final de la curva marca la fractura.
-            </p>
-          )}
+            {tipoSeccion === 'circular' ? (
+              <Stepper etiqueta="Diámetro d (mm)" valor={d} onChange={setD} min={4} max={20} paso={0.5} disabled={montada} />
+            ) : (
+              <>
+                <Stepper etiqueta="Ancho b (mm)" valor={b} onChange={setB} min={4} max={30} paso={0.5} disabled={montada} />
+                <Stepper etiqueta="Espesor h (mm)" valor={h} onChange={setH} min={1} max={20} paso={0.5} disabled={montada} />
+              </>
+            )}
+            <Stepper etiqueta="Longitud calibrada Lo (mm)" valor={L} onChange={setL} min={20} max={100} paso={5} decimales={0} disabled={montada} />
+            <Stepper etiqueta="Velocidad (mm/min)" valor={velocidad} onChange={setVelocidad} min={0.1} max={50} paso={0.5} disabled={fracturada} />
+            <Segmentado
+              etiqueta="Tiempo"
+              opciones={[{ valor: '1', etiqueta: '×1' }, { valor: '10', etiqueta: '×10' }, { valor: '50', etiqueta: '×50' }]}
+              valor={factorTiempo}
+              onChange={setFactorTiempo}
+            />
+          </div>
 
-          <hr className="separador" />
-          <h3>Mediciones registradas ({sesion.mediciones.length})</h3>
+          <div className="fila-controles">
+            <div className="segmentado-grupo">
+              <span className="stepper-etiqueta">Mover travesaño (manual)</span>
+              <div className="stepper-fila">
+                <button type="button" onClick={() => jog(-1)} disabled={!(estado === 'montada' || estado === 'pausada') || s.eps <= 0}>▼</button>
+                <button type="button" onClick={() => jog(1)} disabled={!(estado === 'montada' || estado === 'pausada')}>▲</button>
+              </div>
+            </div>
+            <Segmentado
+              etiqueta="Paso (mm)"
+              opciones={(['0.001', '0.01', '0.1', '1'] as PasoJog[]).map((v) => ({ valor: v, etiqueta: v.replace('.', ',') }))}
+              valor={pasoJog}
+              onChange={setPasoJog}
+            />
+            <div className="segmentado-grupo">
+              <span className="stepper-etiqueta">Probeta</span>
+              <button type="button" className="btn-peligro-suave" onClick={() => { nuevaProbeta(); setProbetasUsadas((n) => n + 1); }}>
+                Nueva probeta
+              </button>
+            </div>
+          </div>
+          <p className="nota">
+            A₀ = {fmt(A, 2)} mm² · {celda.nombre} · extensómetro axial (resolución 0,001 mm) · probetas usadas: {probetasUsadas}.
+            La máquina controla el desplazamiento del travesaño: la carga es la respuesta de la probeta.
+          </p>
+        </section>
+
+        <section className="lab-panel">
+          <div className="lab-panel-titulo">Material de la probeta</div>
+          <ChipsMaterial materialId={sesion.materialId} onChange={cambiarMaterial} disabled={montada} soloIsotropicos />
+          {montada && <p className="nota">Para cambiar material o geometría, desmonte la probeta o use «Nueva probeta».</p>}
+          <details className="ficha-desplegable">
+            <summary>Ficha técnica del material</summary>
+            <FichaMaterial material={material} />
+          </details>
+          <div className="fila" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+            <button onClick={() => exportarMedicionesCSV(sesion)} disabled={sesion.mediciones.length === 0}>Exportar CSV</button>
+            <button onClick={() => exportarSesionJSON(sesion)}>Exportar JSON</button>
+            <button onClick={() => exportarSvgComoPng(ID_GRAFICO, `curva-traccion-${sesion.materialId}.png`)}>Gráfico PNG</button>
+            <button onClick={() => window.print()}>Imprimir</button>
+          </div>
+        </section>
+      </div>
+
+      {/* Fila 3: datos y análisis */}
+      <div className="lab-grid">
+        <section className="lab-panel">
+          <div className="lab-panel-titulo">Datos adquiridos ({sesion.mediciones.length})</div>
           {sesion.mediciones.length === 0 ? (
-            <p className="nota">Aplique carga en la Zona C y presione «Registrar punto» para ir guardando datos.</p>
+            <p className="nota">
+              Al iniciar el ensayo, el sistema registra un punto por segundo (o antes, si la carga cambia más de un 2 %).
+              Con la máquina en pausa puede registrar puntos manualmente.
+            </p>
           ) : (
-            <table className="tabla-datos">
-              <thead>
-                <tr><th>#</th><th>Fuerza (N)</th><th>Alargamiento (mm)</th><th>ε transversal</th></tr>
-              </thead>
-              <tbody>
-                {sesion.mediciones.map((p, i) => (
-                  <tr key={p.id} onClick={() => setIndiceSeleccionado(i)} style={{ cursor: 'pointer', background: i === indiceSeleccionado ? '#eaf1f7' : undefined }}>
-                    <td>{i}</td>
-                    <td>{p.lecturas.fuerza.valor ?? '—'}</td>
-                    <td>{p.lecturas.alargamiento.valor ?? '—'}</td>
-                    <td>{p.lecturas.deformacionTransversal.valor ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="tabla-scroll" ref={tablaRef}>
+              <table className="tabla-datos">
+                <thead>
+                  <tr><th>#</th><th>t (s)</th><th>Carga (kN)</th><th>Extensión (mm)</th><th>ε transversal</th></tr>
+                </thead>
+                <tbody>
+                  {sesion.mediciones.map((m, i) => (
+                    <tr
+                      key={m.id}
+                      onClick={() => setSeleccion(i)}
+                      className={`${i === seleccion ? 'fila-seleccionada' : ''} ${s.verdaderos[i]?.manual ? 'fila-manual' : ''}`}
+                    >
+                      <td>{i + 1}{s.verdaderos[i]?.manual ? ' ✎' : ''}</td>
+                      <td>{valorLectura(m.lecturas.tiempo, 2)}</td>
+                      <td>{m.lecturas.fuerza.valor === null ? 'OVL' : fmt(m.lecturas.fuerza.valor / 1000, 3)}</td>
+                      <td>{valorLectura(m.lecturas.alargamiento, 3)}</td>
+                      <td>{valorLectura(m.lecturas.deformacionTransversal, 5)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="fila" style={{ marginTop: 10 }}>
+            <button className="primario" onClick={registrarManual} disabled={!(estado === 'montada' || estado === 'pausada')}>Registrar punto</button>
+            <span className="nota" style={{ margin: 0 }}>Haga clic en una fila para analizarla.</span>
+          </div>
+        </section>
+
+        <section className="lab-panel">
+          {fracturada && (
+            <>
+              <div className="lab-panel-titulo">Resumen del ensayo</div>
+              <div className="resumen-ensayo">
+                <div className="resumen-item"><div className="r-etiqueta">Carga máxima medida</div><div className="r-valor">{fmt(FmaxMedida / 1000, 2)} kN</div></div>
+                <div className="resumen-item"><div className="r-etiqueta">Resistencia a la tracción σu = Fmáx/A₀</div><div className="r-valor">{fmt(FmaxMedida / A, 1)} MPa</div></div>
+                <div className="resumen-item">
+                  <div className="r-etiqueta">Límite elástico convencional Rp0,2</div>
+                  <div className="r-valor">{rp02 ? `${fmt(rp02.sigma_MPa, 0)} MPa` : 'No aplica (frágil)'}</div>
+                </div>
+                <div className="resumen-item"><div className="r-etiqueta">Alargamiento a la rotura A</div><div className="r-valor">{fmt(alargamientoRotura, 1)} %</div></div>
+                <div className="resumen-item"><div className="r-etiqueta">Deformación total en la rotura</div><div className="r-valor">{fmt(epsF * 100, 1)} %</div></div>
+                <div className="resumen-item"><div className="r-etiqueta">Energía absorbida (tenacidad)</div><div className="r-valor">{fmt(energia, 2)} MJ/m³</div></div>
+              </div>
+              <p className="nota">
+                A = (Lu − Lo)/Lo: alargamiento permanente medido juntando los trozos rotos (se recupera la parte elástica).
+                La energía es el área bajo la curva recorrida.
+              </p>
+              <hr className="separador" />
+            </>
           )}
 
-          {sesion.mediciones.length > 0 && (
+          <div className="lab-panel-titulo">Calcule y compare</div>
+          {!puntoSel || !medSel ? (
+            <p className="nota">Seleccione una fila de la tabla. Con la carga y la extensión medidas, calcule σ = F/A₀ y ε = ΔL/Lo; en un punto de la zona elástica también E = σ/ε y ν = −ε_trans/ε.</p>
+          ) : (
             <>
-              <hr className="separador" />
-              <h3>Calcule y compare</h3>
-              <div className="campo">
-                <label>Punto a analizar</label>
-                <select value={indiceSeleccionado} onChange={(e) => setIndiceSeleccionado(Number(e.target.value))}>
-                  {sesion.mediciones.map((_, i) => <option key={i} value={i}>Punto {i}</option>)}
-                </select>
-              </div>
+              <p className="nota">
+                Punto {seleccion! + 1}: F = {valorLectura(medSel.lecturas.fuerza, 0)} N · ΔL = {valorLectura(medSel.lecturas.alargamiento, 3)} mm ·
+                ε_trans = {valorLectura(medSel.lecturas.deformacionTransversal, 5)} · A₀ = {fmt(A, 2)} mm² · Lo = {fmt(L, 1)} mm
+                {elasticoSel ? ' · punto en zona elástica' : ' · fuera de la zona elástica: E y ν no aplican'}
+              </p>
               <div className="fila campo">
-                {(['sigma', 'epsilon'] as const).map((variable) => (
-                  <div key={variable}>
-                    <label>{variable === 'sigma' ? 'σ calculado (MPa)' : 'ε calculado'}</label>
-                    <input type="number" value={sesion.calculosEstudiante[variable] ?? ''} onChange={(e) => registrarCalculo(variable, Number(e.target.value))} />
-                  </div>
-                ))}
+                <div>
+                  <label>σ calculado (MPa)</label>
+                  <input type="number" value={sesion.calculosEstudiante.sigma ?? ''} onChange={(e) => registrarCalculo('sigma', Number(e.target.value))} />
+                </div>
+                <div>
+                  <label>ε calculado</label>
+                  <input type="number" value={sesion.calculosEstudiante.epsilon ?? ''} onChange={(e) => registrarCalculo('epsilon', Number(e.target.value))} />
+                </div>
               </div>
-              <div className="fila campo">
-                {(['E', 'nu'] as const).map((variable) => (
-                  <div key={variable}>
-                    <label>{variable === 'E' ? 'E calculado (MPa)' : 'ν calculado'}</label>
-                    <input type="number" value={sesion.calculosEstudiante[variable] ?? ''} onChange={(e) => registrarCalculo(variable, Number(e.target.value))} />
+              {elasticoSel && (
+                <div className="fila campo">
+                  <div>
+                    <label>E calculado (MPa)</label>
+                    <input type="number" value={sesion.calculosEstudiante.E ?? ''} onChange={(e) => registrarCalculo('E', Number(e.target.value))} />
                   </div>
-                ))}
-              </div>
-
-              {hayCalculo && puntoRef !== undefined && sigmaRef !== undefined && (
+                  <div>
+                    <label>ν calculado</label>
+                    <input type="number" value={sesion.calculosEstudiante.nu ?? ''} onChange={(e) => registrarCalculo('nu', Number(e.target.value))} />
+                  </div>
+                </div>
+              )}
+              {hayCalculo && (
                 <TablaValidacion>
-                  <FilaValidacion etiqueta="σ (esfuerzo)" valorEstudiante={sesion.calculosEstudiante.sigma} valorReferencia={sigmaRef} unidad="MPa" />
-                  <FilaValidacion etiqueta="ε (deformación unitaria)" valorEstudiante={sesion.calculosEstudiante.epsilon} valorReferencia={puntoRef} unidad="" />
-                  {ERef !== undefined && <FilaValidacion etiqueta="E (módulo de Young)" valorEstudiante={sesion.calculosEstudiante.E} valorReferencia={ERef} unidad="MPa" />}
-                  {nuRef !== undefined && puntoRef <= (epsY ?? 0) && <FilaValidacion etiqueta="ν (Poisson, solo válido en zona elástica)" valorEstudiante={sesion.calculosEstudiante.nu} valorReferencia={nuRef} unidad="" />}
+                  <FilaValidacion etiqueta="σ (esfuerzo)" valorEstudiante={sesion.calculosEstudiante.sigma} valorReferencia={puntoSel.sigma} unidad="MPa" />
+                  <FilaValidacion etiqueta="ε (deformación unitaria)" valorEstudiante={sesion.calculosEstudiante.epsilon} valorReferencia={puntoSel.eps} unidad="" />
+                  {elasticoSel && material.propiedades.E_MPa !== undefined && (
+                    <FilaValidacion etiqueta="E (módulo de Young)" valorEstudiante={sesion.calculosEstudiante.E} valorReferencia={material.propiedades.E_MPa} unidad="MPa" />
+                  )}
+                  {elasticoSel && material.propiedades.nu !== undefined && (
+                    <FilaValidacion etiqueta="ν (Poisson)" valorEstudiante={sesion.calculosEstudiante.nu} valorReferencia={material.propiedades.nu} unidad="" />
+                  )}
                 </TablaValidacion>
               )}
             </>
           )}
 
           <hr className="separador" />
-          <h3>Notas</h3>
+          <div className="lab-panel-titulo">Notas</div>
           <textarea
-            rows={5}
+            rows={4}
             value={sesion.conclusiones}
             onChange={(e) => registrarConclusiones(e.target.value)}
-            placeholder="Comportamiento dúctil o frágil, límite de fluencia, resistencia última, deformación a la fractura…"
+            placeholder="Comportamiento dúctil o frágil, límite de fluencia, resistencia última, alargamiento, tipo de fractura…"
           />
-
-          <hr className="separador" />
-          <div className="fila">
-            <button onClick={() => exportarMedicionesCSV(sesion)} disabled={sesion.mediciones.length === 0}>Exportar CSV</button>
-            <button onClick={() => exportarSesionJSON(sesion)}>Exportar JSON</button>
-            <button onClick={() => window.print()}>Imprimir</button>
-          </div>
-        </div>
+        </section>
       </div>
     </div>
   );

@@ -8,6 +8,9 @@ import {
   deformacionDesdeEsfuerzo,
   deformacionPermanenteTrasDescarga,
   parametrosCurvaBilineal,
+  esfuerzoConHistoria,
+  trabajoDeformacion,
+  limiteElasticoOffset,
 } from '../mechanics/axial';
 import { obtenerMaterial } from '../materials';
 
@@ -101,6 +104,17 @@ describe('Modelo constitutivo por material', () => {
     expect(esfuerzoEnDeformacion(fundicion, epsF * 1.5)).toBeUndefined();
   });
 
+  it('frágil con σU < E·εF (fundición gris, ABS, PLA…): curva cóncava de pendiente inicial E que rompe en (εF, σU) sin superarlo', () => {
+    for (const id of ['fundicion-gris-clase30', 'abs', 'pla-fdm', 'abs-fdm']) {
+      const m = obtenerMaterial(id)!;
+      const { E_MPa, sigmaU_MPa, epsilonF } = m.propiedades;
+      expect(esfuerzoEnDeformacion(m, epsilonF!)).toBeCloseTo(sigmaU_MPa!, 6);
+      const h = epsilonF! * 1e-5;
+      expect(esfuerzoEnDeformacion(m, h)! / h).toBeCloseTo(E_MPa!, -2);
+      for (let i = 1; i <= 50; i++) expect(esfuerzoEnDeformacion(m, (epsilonF! * i) / 50)!).toBeLessThanOrEqual(sigmaU_MPa! + 1e-9);
+    }
+  });
+
   it('descarga puramente elástica (no supera εY) no deja deformación permanente', () => {
     const a36 = obtenerMaterial('astm-a36')!;
     expect(deformacionPermanenteTrasDescarga(a36, 0.0005)).toBeCloseTo(0, 9);
@@ -140,7 +154,7 @@ describe('deformacionDesdeEsfuerzo — inversa del modelo constitutivo (control 
     const a36 = obtenerMaterial('astm-a36')!;
     expect(deformacionDesdeEsfuerzo(a36, 1000)).toBeUndefined(); // > σU
     const fundicion = obtenerMaterial('fundicion-gris-clase30')!;
-    expect(deformacionDesdeEsfuerzo(fundicion, 700)).toBeUndefined(); // > E·εF del modelo frágil
+    expect(deformacionDesdeEsfuerzo(fundicion, 700)).toBeUndefined(); // > σU del modelo frágil
   });
 
   it('ida y vuelta: σ → ε → σ coincide para una malla de esfuerzos', () => {
@@ -150,5 +164,62 @@ describe('deformacionDesdeEsfuerzo — inversa del modelo constitutivo (control 
       expect(eps).toBeDefined();
       expect(esfuerzoEnDeformacion(a36, eps!)).toBeCloseTo(sigma, 4);
     }
+  });
+});
+
+describe('esfuerzoConHistoria — descarga y recarga elásticas', () => {
+  const a36 = obtenerMaterial('astm-a36')!;
+  const E = a36.propiedades.E_MPa!;
+
+  it('en carga monótona coincide con la curva del material', () => {
+    expect(esfuerzoConHistoria(a36, 0.05, 0.05)).toBeCloseTo(esfuerzoEnDeformacion(a36, 0.05)!, 9);
+  });
+
+  it('al descargar sigue una recta de pendiente E hasta la deformación permanente', () => {
+    const epsMax = 0.05;
+    const sigmaMax = esfuerzoEnDeformacion(a36, epsMax)!;
+    const epsP = epsMax - sigmaMax / E;
+    expect(esfuerzoConHistoria(a36, epsP, epsMax)).toBeCloseTo(0, 6);
+    expect(esfuerzoConHistoria(a36, (epsP + epsMax) / 2, epsMax)).toBeCloseTo(sigmaMax / 2, 6);
+    expect(epsP).toBeCloseTo(deformacionPermanenteTrasDescarga(a36, epsMax), 9);
+  });
+
+  it('por debajo de la deformación permanente la probeta queda sin carga (nunca compresión)', () => {
+    expect(esfuerzoConHistoria(a36, 0, 0.05)).toBe(0);
+  });
+
+  it('un material frágil también descarga con pendiente E desde el punto alcanzado', () => {
+    const fundicion = obtenerMaterial('fundicion-gris-clase30')!;
+    const sigmaMax = esfuerzoEnDeformacion(fundicion, 0.004)!;
+    expect(esfuerzoConHistoria(fundicion, 0.0035, 0.004)).toBeCloseTo(sigmaMax - fundicion.propiedades.E_MPa! * 0.0005, 6);
+  });
+});
+
+describe('trabajoDeformacion — energía absorbida', () => {
+  it('área del triángulo elástico = ½·σ·ε', () => {
+    expect(trabajoDeformacion([{ epsilon: 0, sigma_MPa: 0 }, { epsilon: 0.001, sigma_MPa: 200 }])).toBeCloseTo(0.1, 9);
+  });
+
+  it('un ciclo elástico de carga y descarga no absorbe energía neta', () => {
+    const ciclo = [{ epsilon: 0, sigma_MPa: 0 }, { epsilon: 0.001, sigma_MPa: 200 }, { epsilon: 0, sigma_MPa: 0 }];
+    expect(trabajoDeformacion(ciclo)).toBeCloseTo(0, 9);
+  });
+});
+
+describe('limiteElasticoOffset — método del 0,2 %', () => {
+  it('en un acero con meseta, Rp0,2 coincide con σY', () => {
+    const a36 = obtenerMaterial('astm-a36')!;
+    expect(limiteElasticoOffset(a36)!.sigma_MPa).toBeCloseTo(250, 3);
+  });
+
+  it('en un aluminio sin meseta, Rp0,2 queda ligeramente por encima de σY', () => {
+    const al = obtenerMaterial('al-6061-t6')!;
+    const rp = limiteElasticoOffset(al)!.sigma_MPa;
+    expect(rp).toBeGreaterThan(al.propiedades.sigmaY_MPa!);
+    expect(rp).toBeLessThan(al.propiedades.sigmaY_MPa! * 1.05);
+  });
+
+  it('un material frágil no tiene límite convencional (rompe antes)', () => {
+    expect(limiteElasticoOffset(obtenerMaterial('fundicion-gris-clase30')!)).toBeUndefined();
   });
 });

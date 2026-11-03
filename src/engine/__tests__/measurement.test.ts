@@ -81,3 +81,11 @@ describe('Selección automática de torquímetro e indicador angular', () => {
     expect(elegirIndicadorAngular(90).id).toBe('indicador-angular-180');
   });
 });
+
+describe('Extensómetro axial (clase 0,5)', () => {
+  it('su incertidumbre en lecturas pequeñas es ±1,5 µm, no una fracción del fondo de escala', () => {
+    const l = medir(0.05, INSTRUMENTOS.extensometroAxial50, { semillaEnsayo: 1, indicePunto: 0, calibrado: true });
+    expect(l.incertidumbre).toBeCloseTo(0.0015, 6);
+    expect(Math.abs((l.valor ?? 0) - 0.05)).toBeLessThanOrEqual(0.0015 + 0.0005);
+  });
+});

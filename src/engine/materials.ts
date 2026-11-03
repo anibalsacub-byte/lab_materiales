@@ -25,6 +25,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'astm-a36',
     nombre: 'Acero ASTM A36',
+    nombreCorto: 'ASTM A36',
     categoria: 'acero_carbono',
     condicion: 'laminado en caliente',
     modelo: 'elastico_plastico_bilineal',
@@ -35,6 +36,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'sae-1018',
     nombre: 'Acero SAE 1018',
+    nombreCorto: 'SAE 1018',
     categoria: 'acero_carbono',
     condicion: 'estirado en frío',
     modelo: 'elastico_plastico_bilineal',
@@ -45,6 +47,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'sae-1045',
     nombre: 'Acero SAE 1045',
+    nombreCorto: 'SAE 1045',
     categoria: 'acero_carbono',
     condicion: 'laminado en caliente',
     modelo: 'elastico_plastico_bilineal',
@@ -56,6 +59,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'sae-4140-normalizado',
     nombre: 'Acero SAE 4140',
+    nombreCorto: 'SAE 4140 N',
     categoria: 'acero_aleado',
     condicion: 'normalizado',
     modelo: 'elastico_plastico_bilineal',
@@ -66,6 +70,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'sae-4140-templado',
     nombre: 'Acero SAE 4140',
+    nombreCorto: 'SAE 4140 T+R',
     categoria: 'acero_aleado',
     condicion: 'templado y revenido',
     modelo: 'elastico_plastico_bilineal',
@@ -78,6 +83,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'aisi-304',
     nombre: 'Acero inoxidable AISI 304',
+    nombreCorto: 'AISI 304',
     categoria: 'acero_inoxidable',
     condicion: 'recocido',
     modelo: 'elastico_plastico_bilineal',
@@ -87,6 +93,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'aisi-316',
     nombre: 'Acero inoxidable AISI 316',
+    nombreCorto: 'AISI 316',
     categoria: 'acero_inoxidable',
     condicion: 'recocido',
     modelo: 'elastico_plastico_bilineal',
@@ -97,6 +104,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'al-6061-t6',
     nombre: 'Aluminio 6061-T6',
+    nombreCorto: 'Al 6061-T6',
     categoria: 'aluminio',
     condicion: 'T6',
     modelo: 'elastico_plastico_bilineal',
@@ -106,6 +114,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'al-7075-t6',
     nombre: 'Aluminio 7075-T6',
+    nombreCorto: 'Al 7075-T6',
     categoria: 'aluminio',
     condicion: 'T6',
     modelo: 'elastico_plastico_bilineal',
@@ -116,6 +125,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'cobre-c110',
     nombre: 'Cobre C110',
+    nombreCorto: 'Cobre C110',
     categoria: 'cobre_aleacion',
     condicion: 'recocido',
     modelo: 'elastico_plastico_bilineal',
@@ -125,6 +135,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'laton-c360',
     nombre: 'Latón C360',
+    nombreCorto: 'Latón C360',
     categoria: 'cobre_aleacion',
     condicion: 'semiduro',
     modelo: 'elastico_plastico_bilineal',
@@ -134,6 +145,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'bronce-c90500',
     nombre: 'Bronce al estaño C90500',
+    nombreCorto: 'Bronce C90500',
     categoria: 'cobre_aleacion',
     condicion: 'colado (as-cast)',
     modelo: 'elastico_plastico_bilineal',
@@ -144,6 +156,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'fundicion-gris-clase30',
     nombre: 'Fundición gris, clase 30',
+    nombreCorto: 'Fund. gris 30',
     categoria: 'fundicion',
     condicion: 'colado',
     modelo: 'fragil_lineal',
@@ -155,6 +168,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'fundicion-nodular-60-40-18',
     nombre: 'Fundición nodular 60-40-18',
+    nombreCorto: 'Fund. nodular',
     categoria: 'fundicion',
     condicion: 'colado',
     modelo: 'elastico_plastico_bilineal',
@@ -165,6 +179,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'abs',
     nombre: 'ABS (moldeado por inyección)',
+    nombreCorto: 'ABS',
     categoria: 'polimero',
     modelo: 'fragil_lineal',
     propiedades: { densidad_kg_m3: 1050, E_MPa: 2300, nu: 0.35, sigmaU_MPa: 40, epsilonF: 0.20 },
@@ -173,6 +188,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'hdpe',
     nombre: 'HDPE (polietileno de alta densidad)',
+    nombreCorto: 'HDPE',
     categoria: 'polimero',
     modelo: 'elastico_plastico_bilineal',
     propiedades: { densidad_kg_m3: 950, E_MPa: 1000, nu: 0.42, sigmaY_MPa: 26, sigmaU_MPa: 30, epsilonF: 0.80 },
@@ -181,6 +197,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'pp',
     nombre: 'PP (polipropileno homopolímero)',
+    nombreCorto: 'PP',
     categoria: 'polimero',
     modelo: 'elastico_plastico_bilineal',
     propiedades: { densidad_kg_m3: 905, E_MPa: 1500, nu: 0.42, sigmaY_MPa: 35, sigmaU_MPa: 35, epsilonF: 0.15 },
@@ -189,6 +206,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'pa6',
     nombre: 'PA6 (nylon 6, seco)',
+    nombreCorto: 'PA6 (nylon)',
     categoria: 'polimero',
     condicion: 'seco (as-molded)',
     modelo: 'elastico_plastico_bilineal',
@@ -199,6 +217,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'pvc-rigido',
     nombre: 'PVC rígido',
+    nombreCorto: 'PVC rígido',
     categoria: 'polimero',
     modelo: 'fragil_lineal',
     propiedades: { densidad_kg_m3: 1400, E_MPa: 3000, nu: 0.38, sigmaU_MPa: 52, epsilonF: 0.08 },
@@ -207,6 +226,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'policarbonato',
     nombre: 'Policarbonato (PC)',
+    nombreCorto: 'PC',
     categoria: 'polimero',
     modelo: 'elastico_plastico_bilineal',
     propiedades: { densidad_kg_m3: 1200, E_MPa: 2400, nu: 0.37, sigmaY_MPa: 62, sigmaU_MPa: 65, epsilonF: 0.12 },
@@ -216,6 +236,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'pla-fdm',
     nombre: 'PLA impreso FDM',
+    nombreCorto: 'PLA (FDM)',
     categoria: 'impresion_3d',
     condicion: '100% relleno, orientación longitudinal (0°)',
     modelo: 'fragil_lineal',
@@ -226,6 +247,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'petg-fdm',
     nombre: 'PETG impreso FDM',
+    nombreCorto: 'PETG (FDM)',
     categoria: 'impresion_3d',
     condicion: '100% relleno, orientación longitudinal (0°)',
     modelo: 'fragil_lineal',
@@ -235,6 +257,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'abs-fdm',
     nombre: 'ABS impreso FDM',
+    nombreCorto: 'ABS (FDM)',
     categoria: 'impresion_3d',
     condicion: '100% relleno, orientación longitudinal (0°)',
     modelo: 'fragil_lineal',
@@ -246,6 +269,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'gfrp-ud',
     nombre: 'GFRP unidireccional (fibra de vidrio/epoxi)',
+    nombreCorto: 'GFRP 0°',
     categoria: 'compuesto',
     condicion: 'laminado unidireccional, carga a 0° (dirección de la fibra)',
     modelo: 'fragil_lineal',
@@ -260,6 +284,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'cfrp-ud',
     nombre: 'CFRP unidireccional (fibra de carbono/epoxi)',
+    nombreCorto: 'CFRP 0°',
     categoria: 'compuesto',
     condicion: 'laminado unidireccional, carga a 0° (dirección de la fibra)',
     modelo: 'fragil_lineal',
@@ -275,6 +300,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'desconocida-a',
     nombre: 'Probeta desconocida A',
+    nombreCorto: 'Desconocida A',
     categoria: 'desconocido',
     modelo: 'elastico_plastico_bilineal',
     esDesconocido: true,
@@ -284,6 +310,7 @@ export const MATERIALES: Material[] = [
   {
     id: 'desconocida-b',
     nombre: 'Probeta desconocida B',
+    nombreCorto: 'Desconocida B',
     categoria: 'desconocido',
     modelo: 'elastico_plastico_bilineal',
     esDesconocido: true,

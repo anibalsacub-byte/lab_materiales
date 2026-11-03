@@ -54,7 +54,7 @@ export function medir(
   // Incertidumbre de medición: variación pequeña y reproducible proporcional a la lectura
   // (o a una fracción del fondo de escala cuando la lectura es muy pequeña, para evitar un
   // "ruido" irreal nulo cerca de cero).
-  const referenciaIncertidumbre = Math.max(Math.abs(valorVerdadero), 0.02 * fondoEscala);
+  const referenciaIncertidumbre = Math.max(Math.abs(valorVerdadero), spec.umbralIncertidumbre ?? 0.02 * fondoEscala);
   const incertidumbre = (spec.incertidumbre_pct / 100) * referenciaIncertidumbre;
   const variacion = ruidoUnitario(`lectura:${spec.id}:${opciones.semillaEnsayo}:${opciones.indicePunto}`) * incertidumbre;
 
@@ -122,6 +122,18 @@ export const INSTRUMENTOS: Record<string, EspecificacionInstrumento> = {
     resolucion: 0.01,
     errorCeroMax_pct: 0.2,
     incertidumbre_pct: 1.5,
+  },
+  extensometroAxial50: {
+    id: 'extensometro-axial-50mm',
+    nombre: 'Extensómetro axial de pinza (50 mm de recorrido)',
+    magnitud: 'alargamiento',
+    unidad: 'mm',
+    rango: [-5, 50],
+    resolucion: 0.001,
+    errorCeroMax_pct: 0.05,
+    incertidumbre_pct: 0.5,
+    // Clase 0,5 (ISO 9513): ±0,5 % de la lectura o ±1,5 µm, lo que sea mayor.
+    umbralIncertidumbre: 0.3,
   },
   extensometroTransversal: {
     id: 'extensometro-transversal',

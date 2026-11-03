@@ -90,8 +90,24 @@ export function parametrosCurvaBilineal(material: Material): ParametrosCurvaBili
 }
 
 /**
+ * Materiales frágiles cuyos datos documentados no caben en una recta (σU < E·εF: fundición gris,
+ * polímeros rígidos) tienen en la realidad una curva cóncava, sin fluencia definida. Se modela como
+ * σ = σU·[1 − (1 − ε/εF)ⁿ] con n = E·εF/σU: la pendiente inicial es exactamente E, la curva nunca
+ * supera σU y rompe en (εF, σU). Devuelve undefined si los datos sí son consistentes con una recta
+ * (n ≤ 1) o faltan, y entonces se usa σ = E·ε.
+ */
+function exponenteFragil(material: Material): number | undefined {
+  if (material.modelo !== 'fragil_lineal') return undefined;
+  const { E_MPa, sigmaU_MPa, epsilonF } = material.propiedades;
+  if (E_MPa === undefined || sigmaU_MPa === undefined || epsilonF === undefined) return undefined;
+  const n = (E_MPa * epsilonF) / sigmaU_MPa;
+  return n > 1 ? n : undefined;
+}
+
+/**
  * Esfuerzo ingenieril σ(ε) según el modelo constitutivo del material:
- * - elastico_lineal / fragil_lineal: σ = E·ε hasta ε = εF (fractura); más allá no está definido.
+ * - elastico_lineal: σ = E·ε hasta ε = εF (fractura); más allá no está definido.
+ * - fragil_lineal: sin fluencia; ver {@link exponenteFragil}. Rompe en (εF, σU) sin superar nunca σU.
  * - elastico_plastico_bilineal: tramo elástico E·ε hasta εY; luego, si el material tiene
  *   {@link Material.mesetaFluencia}, una meseta plana en σY (fenómeno de Lüders); después
  *   endurecimiento hasta (εUTS, σU); y finalmente un ablandamiento ingenieril hasta (εF,
@@ -110,6 +126,8 @@ export function esfuerzoEnDeformacion(material: Material, epsilon: number): numb
 
   if (material.modelo === 'fragil_lineal' || material.modelo === 'elastico_lineal') {
     if (epsilonF !== undefined && epsAbs > epsilonF) return undefined;
+    const n = exponenteFragil(material);
+    if (n !== undefined) return signo * material.propiedades.sigmaU_MPa! * (1 - (1 - epsAbs / epsilonF!) ** n);
     return signo * E_MPa * epsAbs;
   }
 
@@ -152,6 +170,12 @@ export function deformacionDesdeEsfuerzo(material: Material, sigma_MPa: number):
   const signo = sigma_MPa < 0 ? -1 : 1;
 
   if (material.modelo === 'fragil_lineal' || material.modelo === 'elastico_lineal') {
+    const n = exponenteFragil(material);
+    if (n !== undefined) {
+      const sigmaU = material.propiedades.sigmaU_MPa!;
+      if (sigmaAbs > sigmaU) return undefined;
+      return signo * epsilonF! * (1 - (1 - sigmaAbs / sigmaU) ** (1 / n));
+    }
     const sigmaMax = epsilonF !== undefined ? E_MPa * epsilonF : undefined;
     if (sigmaMax !== undefined && sigmaAbs > sigmaMax) return undefined;
     return (signo * sigmaAbs) / E_MPa;
@@ -179,6 +203,64 @@ export function deformacionPermanenteTrasDescarga(material: Material, epsilonMax
   const sigmaEnMaximo = esfuerzoEnDeformacion(material, epsilonMaximo);
   if (sigmaEnMaximo === undefined) return Math.sign(epsilonMaximo) * Infinity; // fracturó: no aplica
   return epsilonMaximo - sigmaEnMaximo / E_MPa;
+}
+
+/**
+ * Esfuerzo considerando la historia de carga (descarga y recarga elásticas).
+ * Si ε ≥ εmax (máxima deformación alcanzada hasta ahora) se sigue la curva monótona. Si ε < εmax,
+ * la probeta fue descargada: el esfuerzo baja por una recta de pendiente E desde (εmax, σ(εmax))
+ * y vuelve a subir por esa misma recta al recargar. Nunca es negativo: por debajo de la deformación
+ * permanente la probeta queda sin carga (las mordazas solo pueden traccionar).
+ */
+export function esfuerzoConHistoria(material: Material, epsilon: number, epsilonMax: number): number | undefined {
+  if (epsilon >= epsilonMax) return esfuerzoEnDeformacion(material, epsilon);
+  const E = material.propiedades.E_MPa;
+  const sigmaMax = esfuerzoEnDeformacion(material, epsilonMax);
+  if (E === undefined || sigmaMax === undefined) return undefined;
+  return Math.max(0, sigmaMax - E * (epsilonMax - epsilon));
+}
+
+/**
+ * Trabajo de deformación por unidad de volumen, ∫σ dε, a lo largo de una trayectoria (regla del
+ * trapecio). En MPa, que equivale a MJ/m³. Los tramos de descarga restan, así que el resultado es
+ * la energía neta absorbida (disipada) por el material.
+ */
+export function trabajoDeformacion(trayectoria: PuntoCurva[]): number {
+  let w = 0;
+  for (let i = 1; i < trayectoria.length; i++) {
+    const a = trayectoria[i - 1];
+    const b = trayectoria[i];
+    w += ((a.sigma_MPa + b.sigma_MPa) / 2) * (b.epsilon - a.epsilon);
+  }
+  return w;
+}
+
+/**
+ * Límite elástico convencional por el método del 0,2 % (offset): intersección de la recta
+ * σ = E·(ε − offset) con la curva del material. Solo se define para materiales que fluyen: en los
+ * frágiles la no linealidad viene del microagrietamiento, no de fluencia plástica, y la norma no
+ * reporta límite convencional — devuelve undefined, igual que si no hay intersección antes de εF.
+ */
+export function limiteElasticoOffset(material: Material, offset = 0.002, numPuntos = 4000): PuntoCurva | undefined {
+  const E = material.propiedades.E_MPa;
+  const epsF = material.propiedades.epsilonF;
+  if (material.modelo !== 'elastico_plastico_bilineal' || E === undefined || epsF === undefined || epsF <= offset) return undefined;
+  let epsAnterior = offset;
+  let fAnterior = (esfuerzoEnDeformacion(material, offset) ?? 0) - 0;
+  for (let i = 1; i <= numPuntos; i++) {
+    const eps = offset + ((epsF - offset) * i) / numPuntos;
+    const sigma = esfuerzoEnDeformacion(material, eps);
+    if (sigma === undefined) return undefined;
+    const f = sigma - E * (eps - offset);
+    if (f <= 0) {
+      const t = fAnterior / (fAnterior - f);
+      const epsCorte = epsAnterior + t * (eps - epsAnterior);
+      return { epsilon: epsCorte, sigma_MPa: E * (epsCorte - offset) };
+    }
+    epsAnterior = eps;
+    fAnterior = f;
+  }
+  return undefined;
 }
 
 /** Genera una curva σ-ε discretizada entre 0 y εF (o un límite dado) para graficar. */

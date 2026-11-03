@@ -39,6 +39,8 @@ export type DisponibilidadMaterial = Partial<Record<keyof PropiedadesMaterial, b
 export interface Material {
   id: string;
   nombre: string;
+  /** Nombre breve para botones de selección (p. ej. "ASTM A36", "SAE 4140 T+R"). */
+  nombreCorto?: string;
   categoria: CategoriaMaterial;
   condicion?: string; // p. ej. "laminado en caliente", "T6", "recocido"
   modelo: ModeloConstitutivo;
@@ -67,6 +69,8 @@ export interface EspecificacionInstrumento {
   resolucion: number;
   errorCeroMax_pct: number; // error de cero máximo posible antes de calibrar, como % del fondo de escala
   incertidumbre_pct: number; // incertidumbre relativa de medición (k=1), como % de la lectura
+  /** Lectura por debajo de la cual la incertidumbre deja de bajar (en unidades del instrumento). Por defecto, 2 % del fondo de escala. */
+  umbralIncertidumbre?: number;
 }
 
 export interface LecturaInstrumento {

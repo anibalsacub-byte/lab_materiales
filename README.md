@@ -37,16 +37,20 @@ Implementado y funcional:
 - **Analizador de secciones** (`src/engine/sections.ts`): área, centroide, Ix, Iy, Ixy, radios de
   giro y ejes principales para secciones circulares, rectangulares (macizas y tubulares) y
   perfiles I, T y L (por el método de rectángulos compuestos).
-- **Banco 1 — Tracción**, **Banco 2 — Compresión**, **Banco 3 — Flexión**, **Banco 5 — Torsión** y
-  **Banco 6 — Pandeo de columnas**: manipulación directa de la carga (por fuerza, deformación
-  unitaria o milímetros en los ensayos axiales; por par torsor en torsión; por carga puntual o
-  distribuida en flexión), representación SVG con cotas de dibujo técnico (probeta tipo "hueso de
-  perro" con mordazas, hombros y cota Lo en tracción/compresión; cota L en pandeo/torsión/flexión)
-  e instrumentos en vivo (celda de carga o torquímetro con rango autoajustado, comparador de
-  carátula, gráficos en tiempo real — incluidos los diagramas V(x)/M(x) en flexión), descarga/
-  deformación permanente, fractura visual en tracción, probeta destructible y reemplazable,
-  registro de puntos y comparación instantánea contra el modelo de referencia — todo en una sola
-  vista, sin pasos obligatorios, al estilo de los simuladores de [PhET](https://phet.colorado.edu/).
+- **Banco 1 — Tracción** (nuevo diseño "laboratorio"): máquina universal de ensayos dibujada en
+  SVG (columnas, travesaño móvil con celda de carga, mordazas de cuña, extensómetro de pinza,
+  consola con display y parada de emergencia). El ensayo se controla como en una máquina real:
+  **desplazamiento del travesaño a velocidad constante** (mm/min), con aceleración de tiempo
+  ×1/×10/×50, pausa, descarga elástica, movimiento manual (jog) y detección de la rotura por
+  caída de carga. Adquisición automática de datos (1 punto/s o cada 2 % de cambio de carga),
+  curva σ–ε en vivo con regiones (elástica, fluencia, endurecimiento, estricción), puntos
+  característicos, línea del 0,2 % (Rp0,2), energía absorbida y curva teórica conmutables,
+  resumen del ensayo (Fmáx, σu, Rp0,2, A %, tenacidad) y exportación del gráfico a PNG.
+- **Banco 2 — Compresión**, **Banco 3 — Flexión**, **Banco 5 — Torsión** y **Banco 6 — Pandeo**
+  (diseño anterior, se migrarán a la misma plantilla): manipulación directa de la carga, SVG con
+  cotas de dibujo técnico, instrumentos en vivo con rango autoajustado, gráficos en tiempo real
+  (incluidos V(x)/M(x) en flexión), registro de puntos y comparación contra el modelo de
+  referencia, al estilo de los simuladores de [PhET](https://phet.colorado.edu/).
 - **Estación A — Propiedades geométricas** y **Estación B — Círculo de Mohr**: herramientas de
   análisis interactivas con representación gráfica.
 - **Exportación**: mediciones a CSV, sesión completa a JSON, informe imprimible (PDF vía
@@ -77,10 +81,11 @@ src/
   trial/                    Gestión de la sesión de ensayo (independiente del banco concreto)
     useSesionEnsayo.ts        Hook con el estado del ensayo (material, mediciones, cálculos del
                                estudiante); no impone una secuencia de pasos en la interfaz
-    exportar.ts                 CSV / JSON
+    exportar.ts                 CSV / JSON / gráfico a PNG
 
   components/               Piezas de interfaz reutilizables entre bancos y estaciones
-    svg/                       Piezas SVG reutilizables (ComparadorDial, GraficoXY)
+    lab/LabUI.tsx              Controles del diseño "laboratorio" (display, stepper, segmentado, pasos, chips)
+    svg/                       Piezas SVG reutilizables (MaquinaUniversalSVG, GraficoEnsayo, ComparadorDial, GraficoXY)
   benches/                   Un banco de ensayo = <Nombre>Bench.tsx + <Nombre>SVG.tsx
     traction/
     compression/
@@ -105,7 +110,7 @@ Requiere Node.js 20+.
 ```bash
 npm install
 npm run dev        # http://localhost:5173 con recarga en caliente
-npm test            # 100 pruebas de validación numérica (vitest)
+npm test            # 111 pruebas de validación numérica (vitest)
 npm run build       # compila TypeScript y genera dist/ para producción
 npm run preview     # sirve dist/ localmente
 ```
@@ -135,9 +140,14 @@ entradas inválidas (áreas, longitudes, secciones y diámetros no físicos).
 
 ## Decisiones técnicas relevantes
 
-- **Modelo constitutivo por material**: elástico-plástico bilineal (metales dúctiles),
-  frágil-lineal (fundición gris, polímeros rígidos, compuestos, impresión 3D) o elástico-lineal,
-  según `material.modelo`. Nunca se usa la misma curva para todos los materiales.
+- **Modelo constitutivo por material**: elástico-plástico por tramos (metales dúctiles: elástico,
+  meseta de fluencia si el material la presenta, endurecimiento y estricción), frágil (fundición
+  gris, polímeros rígidos, compuestos, impresión 3D) o elástico-lineal, según `material.modelo`.
+  En los frágiles cuyos datos no caben en una recta (σU < E·εF) la curva es cóncava,
+  σ = σU·[1 − (1 − ε/εF)ⁿ] con n = E·εF/σU: pendiente inicial E, rotura en (εF, σU) sin
+  superar nunca σU. Nunca se usa la misma curva para todos los materiales.
+- **Historia de carga**: la descarga y la recarga siguen una recta de pendiente E desde el punto
+  alcanzado (deformación permanente), sin esfuerzos de compresión en las mordazas.
 - **Aplicabilidad de Euler**: se verifica la esbeltez crítica (σcr vs. σY) antes de aceptar el
   resultado; una columna corta advierte que Euler no es válido.
 - **Imperfección inicial en pandeo**: modelo de amplificación elástica δ(P)=δ₀/(1−P/Pcr),
