@@ -51,6 +51,8 @@ export interface ModeloEnsayo {
   leer: (x: number, F: number, indicePunto: number, calibrado: boolean, xMax: number) => Record<string, LecturaInstrumento>;
   /** Clave de la lectura que retiene el indicador de pico (la celda de carga o el torquímetro). */
   clavePico: string;
+  /** Se llama justo antes de reiniciar con una probeta nueva (p. ej. para guardar la curva y compararla después). */
+  alReiniciar?: () => void;
 }
 
 interface EstadoSimulacion {
@@ -203,6 +205,7 @@ export function useEnsayoMaquina(sesionEnsayo: ReturnType<typeof useSesionEnsayo
   // ---------- Acciones ----------
 
   function nuevaProbeta(materialId?: string) {
+    if (s.traza.length > 2) modelo.alReiniciar?.();
     sim.current = simulacionInicial();
     reiniciarEnsayo(materialId);
     setEstado('desmontada');

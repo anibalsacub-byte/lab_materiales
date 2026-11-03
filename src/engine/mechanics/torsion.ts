@@ -82,3 +82,27 @@ export function parTorsor(material: Material, G: number, dExt: number, dInt: num
   }
   return T;
 }
+
+/**
+ * Distribución del cortante τ(r) a lo largo del diámetro para el giro actual θ, habiendo llegado
+ * antes a θmax. Al descargar (θ < θmax) la recuperación es elástica, Δτ = G·r·Δθ/L: si la sección
+ * llegó a fluir quedan esfuerzos residuales de signo opuesto en el núcleo y en la superficie.
+ * Devuelve puntos (r con signo, de −ro a ro; τ en MPa), con τ = 0 en el hueco de un tubo.
+ */
+export function distribucionCortante(material: Material, G: number, dExt: number, dInt: number, L: number, theta: number, thetaMax: number, nPuntos = 81): { r: number; tau: number }[] {
+  const ro = dExt / 2;
+  const ri = dInt / 2;
+  const tMax = Math.max(thetaMax, theta);
+  const puntos: { r: number; tau: number }[] = [];
+  for (let i = 0; i < nPuntos; i++) {
+    const r = -ro + (2 * ro * i) / (nPuntos - 1);
+    const a = Math.abs(r);
+    if (a < ri) {
+      puntos.push({ r, tau: 0 });
+      continue;
+    }
+    const tauEnv = esfuerzoCortanteMaterial(material, G, (a * tMax) / L) ?? 0;
+    puntos.push({ r, tau: Math.sign(r || 1) * (tauEnv - (G * a * (tMax - theta)) / L) });
+  }
+  return puntos;
+}

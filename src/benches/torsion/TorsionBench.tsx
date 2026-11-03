@@ -6,6 +6,10 @@ import {
   BotonesExportar,
   CasillasGrafico,
   ControlesMovimiento,
+  EcuacionesVivo,
+  limitesConComparadas,
+  useHistorialEnsayos,
+  type Ecuacion,
   LineaEstado,
   MandosMaquina,
   ResumenItem,
@@ -21,14 +25,15 @@ import { MaquinaTorsionSVG } from './MaquinaTorsionSVG';
 import { useSesionEnsayo } from '../../trial/useSesionEnsayo';
 import { useEnsayoMaquina, type ModeloEnsayo } from '../../trial/useEnsayoMaquina';
 import { obtenerMaterial, moduloCorte } from '../../engine/materials';
-import { deformacionAngularRotura, momentoPolarInerciaCircular, parTorsor } from '../../engine/mechanics/torsion';
+import { deformacionAngularRotura, distribucionCortante, momentoPolarInerciaCircular, parTorsor } from '../../engine/mechanics/torsion';
 import { medir, INSTRUMENTOS, elegirTorquimetro } from '../../engine/measurement';
 import type { Material } from '../../engine/types';
 
 type TipoEje = 'maciza' | 'tubular';
+type VistaGrafico = 'par' | 'seccion';
 
 const ID_GRAFICO = 'grafico-ensayo-torsion';
-const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: false, energia: false, cuadricula: true, teorica: true };
+const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: false, energia: false, cuadricula: true, teorica: true, comparar: true };
 const RAD_A_DEG = 180 / Math.PI;
 /** Anillos de integración del par (suficiente para < 0,1 % de error y un bucle fluido). */
 const N_ANILLOS = 60;
@@ -49,6 +54,8 @@ export function TorsionBench({ onVolver }: { onVolver: () => void }) {
   const [velocidad, setVelocidad] = useState(180);
   const [pasoJog, setPasoJog] = useState('1');
   const [opciones, setOpciones] = useState<OpcionesGrafico>(OPCIONES_INICIALES);
+  const [vista, setVista] = useState<VistaGrafico>('par');
+  const historial = useHistorialEnsayos();
 
   const material = obtenerMaterial(sesion.materialId)!;
   const ductil = material.modelo === 'elastico_plastico_bilineal';
@@ -86,7 +93,9 @@ export function TorsionBench({ onVolver }: { onVolver: () => void }) {
       };
     },
     clavePico: 'par',
+    alReiniciar: () => historial.guardar(etiquetaEnsayo, traza),
   };
+  const etiquetaEnsayo = `${material.nombreCorto ?? material.nombre} · Ø${fmt(dExt, 1)}${tipoEje === 'tubular' ? `/${fmt(di, 1)}` : ''} · L ${fmt(L, 0)}`;
   const m = useEnsayoMaquina(sesionEnsayo, modelo);
   const { sim: s, estado, fracturada, retirada, enMaquina, montada } = m;
 
@@ -168,6 +177,46 @@ export function TorsionBench({ onVolver }: { onVolver: () => void }) {
   const calc = sesion.calculosEstudiante;
   const hayCalculo = ['J', 'tauMax', 'gamma', 'G'].some((v) => calc[v] !== undefined);
   const pasoActual = estado === 'desmontada' ? 2 : fracturada ? 4 : 3;
+  const lim = limitesConComparadas(xMaxGrafico, yMaxGrafico, historial.comparadas, !!opciones.comparar);
+
+  // Ecuaciones en vivo con el par y el giro que leen ahora los instrumentos.
+  const Tv = typeof Tleido === 'number' ? Tleido : undefined;
+  const thV = typeof giroLeido === 'number' ? giroLeido / RAD_A_DEG : undefined;
+  const elasticoAhora = enMaquina && m.F > 0 && Math.abs(m.F - k * s.x) <= 0.03 * m.F;
+  const fluye = thetaY !== undefined && s.xMax > thetaY;
+  const ecuaciones: Ecuacion[] = [
+    tipoEje === 'maciza'
+      ? { nombre: 'Momento polar de inercia', formula: 'J = π·D⁴/32', sustitucion: `π·(${fmt(dExt, 2)})⁴/32`, resultado: `${fmt(J, 1)} mm⁴` }
+      : { nombre: 'Momento polar de inercia', formula: 'J = π·(D⁴ − d⁴)/32', sustitucion: `π·(${fmt(dExt, 2)}⁴ − ${fmt(di, 2)}⁴)/32`, resultado: `${fmt(J, 1)} mm⁴` },
+    {
+      nombre: 'Cortante en la superficie',
+      formula: 'τ = T·r / J',
+      sustitucion: Tv !== undefined ? `${fmt(Tv, 0)} N·mm · ${fmt(ro, 2)} mm / ${fmt(J, 1)} mm⁴` : undefined,
+      resultado: Tv !== undefined ? `${fmt((Tv * ro) / J, 1)} MPa` : undefined,
+      inactiva: fluye,
+      nota: fluye ? 'La sección ya fluyó: la fórmula elástica sobrestima τ en la superficie (vea la pestaña τ(r)).' : undefined,
+    },
+    {
+      nombre: 'Deformación angular en la superficie',
+      formula: 'γ = r·θ / L',
+      sustitucion: thV !== undefined ? `${fmt(ro, 2)} mm · ${fmt(thV, 5)} rad / ${fmt(L, 0)} mm` : undefined,
+      resultado: thV !== undefined ? `${fmt((ro * thV) / L, 5)} rad` : undefined,
+    },
+    {
+      nombre: 'Módulo de corte',
+      formula: 'G = T·L / (J·θ)',
+      sustitucion: elasticoAhora && Tv !== undefined && thV ? `${fmt(Tv, 0)}·${fmt(L, 0)} / (${fmt(J, 1)}·${fmt(thV, 5)})` : undefined,
+      resultado: elasticoAhora && Tv !== undefined && thV ? `${fmt((Tv * L) / (J * thV) / 1000, 1)} GPa` : undefined,
+      inactiva: !elasticoAhora,
+      nota: elasticoAhora ? undefined : 'Solo en la zona elástica (recta inicial de la curva par–giro).',
+    },
+  ];
+
+  // Distribución τ(r) en la sección (con esfuerzos residuales si se descargó).
+  const distribucion = vista === 'seccion' && montada ? distribucionCortante(material, G, dExt, di, L, s.x, s.xMax) : [];
+  const tauEscala = Math.max(...distribucion.map((p) => Math.abs(p.tau)), (m.F * ro) / J, tauY ?? 0, 1) * 1.15;
+  // Radio del núcleo elástico: donde γ = γY (solo si la superficie ya fluyó).
+  const radioNucleo = tauY !== undefined && s.x > 0 && s.x >= s.xMax && (ro * s.x) / L > tauY / G ? ((tauY / G) * L) / s.x : undefined;
 
   return (
     <div className="lab">
@@ -206,29 +255,75 @@ export function TorsionBench({ onVolver }: { onVolver: () => void }) {
             regimen={regimen}
             detalle={<>γ superficie = r·θ/L = {fmt((ro * s.x) / L, 4)} rad · t = {fmt(s.t, 1)} s{kv > 1.05 ? ` · escala gráfica del giro en la probeta ×${fmt(kv, 1)}` : ''}</>}
           />
+          <EcuacionesVivo ecuaciones={ecuaciones} />
         </section>
 
         <section className="lab-panel panel-columna">
-          <div className="lab-panel-titulo">Curva par–giro</div>
-          <GraficoEnsayo
-            id={ID_GRAFICO}
-            titulo="Curva par torsor–ángulo de giro"
-            subtitulo={`${material.nombre}${material.condicion ? ` (${material.condicion})` : ''} — torsión, L = ${fmt(L, 0)} mm`}
-            xEtiqueta="Ángulo de giro θ (°)"
-            yEtiqueta="Par torsor T (N·m)"
-            xMax={xMaxGrafico}
-            yMax={yMaxGrafico}
-            traza={traza}
-            referencia={referencia}
-            regiones={regiones}
-            puntosClave={puntosClave}
-            energia={energia / 1000}
-            puntoActual={montada ? { x: s.x * RAD_A_DEG, y: m.F / 1000, fracturado: fracturada } : undefined}
-            registrados={s.verdaderos.filter((p) => p.manual).map((p) => ({ x: p.x * RAD_A_DEG, y: p.F / 1000 }))}
-            opciones={opciones}
-            unidadEnergia="J"
+          <div className="lab-panel-titulo">Gráficos</div>
+          <Segmentado<VistaGrafico>
+            opciones={[{ valor: 'par', etiqueta: 'Par–giro' }, { valor: 'seccion', etiqueta: 'Cortante τ(r) en la sección' }]}
+            valor={vista}
+            onChange={setVista}
           />
-          <CasillasGrafico opciones={opciones} setOpciones={setOpciones} claves={['etiquetas', 'puntos', 'regiones', 'energia', 'cuadricula', 'teorica']} nombres={{ teorica: 'Recta elástica GJ/L' }} />
+          <div style={{ marginTop: 8 }}>
+            {vista === 'par' ? (
+              <GraficoEnsayo
+                id={ID_GRAFICO}
+                titulo="Curva par torsor–ángulo de giro"
+                subtitulo={`${material.nombre}${material.condicion ? ` (${material.condicion})` : ''} — torsión, L = ${fmt(L, 0)} mm`}
+                xEtiqueta="Ángulo de giro θ (°)"
+                yEtiqueta="Par torsor T (N·m)"
+                xMax={lim.xMax}
+                yMax={lim.yMax}
+                comparadas={historial.comparadas}
+                etiquetaActual={etiquetaEnsayo}
+                traza={traza}
+                referencia={referencia}
+                regiones={regiones}
+                puntosClave={puntosClave}
+                energia={energia / 1000}
+                puntoActual={montada ? { x: s.x * RAD_A_DEG, y: m.F / 1000, fracturado: fracturada } : undefined}
+                registrados={s.verdaderos.filter((p) => p.manual).map((p) => ({ x: p.x * RAD_A_DEG, y: p.F / 1000 }))}
+                opciones={opciones}
+                unidadEnergia="J"
+              />
+            ) : (
+              <GraficoEnsayo
+                id={ID_GRAFICO}
+                titulo="Distribución del cortante a lo largo del diámetro"
+                subtitulo={
+                  m.F <= 0 && s.xMax > 0
+                    ? 'Sin par: los esfuerzos que quedan son residuales (su par resultante es nulo)'
+                    : `T = ${fmt(m.F / 1000, 2)} N·m · línea discontinua: teoría elástica τ = T·r/J`
+                }
+                xEtiqueta="Posición radial r (mm)"
+                yEtiqueta="Esfuerzo cortante τ (MPa)"
+                xMin={-ro * 1.05}
+                xMax={ro * 1.05}
+                yMin={-tauEscala}
+                yMax={tauEscala}
+                traza={distribucion.map((p) => ({ x: p.r, y: p.tau }))}
+                referencia={[{ x: -ro, y: (-m.F * ro) / J }, { x: ro, y: (m.F * ro) / J }]}
+                puntosClave={
+                  radioNucleo !== undefined
+                    ? [{ x: radioNucleo, y: tauY!, etiqueta: `núcleo elástico r = ${fmt(radioNucleo, 2)} mm`, color: '#f0b429' }]
+                    : []
+                }
+                opciones={{ ...opciones, regiones: false, energia: false, comparar: false }}
+              />
+            )}
+          </div>
+          {vista === 'par' && (
+            <>
+              <CasillasGrafico
+                opciones={opciones}
+                setOpciones={setOpciones}
+                claves={['etiquetas', 'puntos', 'regiones', 'energia', 'cuadricula', 'teorica', ...(historial.comparadas.length ? (['comparar'] as const) : [])]}
+                nombres={{ teorica: 'Recta elástica GJ/L' }}
+              />
+              {historial.comparadas.length > 0 && <button className="boton-texto" onClick={historial.limpiar}>Borrar ensayos comparados ({historial.comparadas.length})</button>}
+            </>
+          )}
           <DisplayDigital
             items={[
               { etiqueta: 'Par', valor: displayPar, unidad: 'N·m', alerta: displayPar === 'OVL' },

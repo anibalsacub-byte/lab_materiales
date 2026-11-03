@@ -46,20 +46,26 @@ Implementado y funcional:
   nuevo montaje, movimiento manual (jog), tara de los instrumentos y detección de la rotura.
   Adquisición automática (1 punto/s o cada 2 % de cambio de carga), «Calcule y compare» sobre
   cualquier punto, resumen del ensayo y exportación a CSV, JSON y PNG del gráfico.
+  Además, en todos: **ecuaciones en vivo** (cada fórmula con los valores que leen ahora los
+  instrumentos, atenuada cuando no aplica) y **comparación de ensayos** (las curvas de las últimas
+  probetas quedan superpuestas en el gráfico, con leyenda).
   - **Banco 1 — Tracción**: mordazas de cuña, probeta tipo hueso de perro con estricción y fractura
-    copa-cono, extensómetro; curva σ–ε con regiones, σy, σu, Rp0,2 y energía.
+    copa-cono, extensómetro; curva σ–ε con regiones, σy, σu, Rp0,2, energía y reducción de área Z
+    (solo en los materiales con dato de referencia).
   - **Banco 2 — Compresión**: platos con asiento esférico; los dúctiles se abarrilan y la carga
     sigue subiendo (se detiene al 50 % o a la capacidad de la máquina); los frágiles rompen por
     cortante a σUc (fundición gris ≈ 752 MPa, 3,6 veces su resistencia a tracción).
   - **Banco 3 — Flexión**: 3 y 4 puntos con rodillos y deflectómetro; curva carga–flecha con
     plasticidad (primera fluencia Py, rótula plástica, rotura frágil de la fibra traccionada) y
-    diagramas V(x) y M(x) a la carga actual.
+    diagramas V(x) y M(x) a la carga actual; distribución σ(y) en la sección central, con las zonas
+    plastificadas y los esfuerzos residuales que quedan al descargar.
   - **Banco 5 — Torsión**: máquina de torsión con disco graduado, generatrices que se vuelven
     hélices, celda de par y encoder; curva par–giro elastoplástica, Ty y rotura transversal
-    (dúctil) o en hélice a 45° (frágil).
+    (dúctil) o en hélice a 45° (frágil); distribución τ(r) con el núcleo elástico y los residuales.
   - **Banco 6 — Pandeo**: columna en la máquina universal con apoyos articulados (cuchilla) o
     empotrados y comparador lateral; imperfección inicial, aproximación a Pcr, bifurcación de la
-    columna perfecta y colapso por rótula plástica; método de Southwell.
+    columna perfecta y colapso por rótula plástica; método de Southwell; sección tubular; curva de
+    diseño Euler–Johnson σcr(λ) con la columna ensayada.
 - **Estación A — Propiedades geométricas** y **Estación B — Círculo de Mohr**: herramientas de
   análisis interactivas con representación gráfica.
 - **Exportación**: mediciones a CSV, sesión completa a JSON, informe imprimible (PDF vía
@@ -122,7 +128,7 @@ Requiere Node.js 20+.
 ```bash
 npm install
 npm run dev        # http://localhost:5173 con recarga en caliente
-npm test            # 128 pruebas de validación numérica (vitest)
+npm test            # 132 pruebas de validación numérica (vitest)
 npm run build       # compila TypeScript y genera dist/ para producción
 npm run preview     # sirve dist/ localmente
 ```

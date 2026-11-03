@@ -23,6 +23,8 @@ interface Props {
   alargamientoUniformeVisual: number;
   /** Intensidad de la estricción localizada, 0 (nada) a 1 (en la fractura). */
   estriccion: number;
+  /** Estrechamiento relativo del cuello en la rotura (0–1), coherente con la reducción de área del material. */
+  profundidadCuello?: number;
   fracturada: boolean;
   tipoFractura: 'ductil' | 'fragil';
   mordazasCerradas: boolean;
@@ -52,7 +54,7 @@ export function MontajeTraccionSVG(p: Props) {
   const yCuello = (yCalibradoTop + yCalibradoBot) / 2;
   const sigmaCuello = 11 + largoCalibrado * 0.04;
   const medioAncho = (y: number) =>
-    (anchoCalibrado / 2) * factorUniforme * (1 - 0.48 * p.estriccion * Math.exp(-((y - yCuello) ** 2) / (2 * sigmaCuello ** 2)));
+    (anchoCalibrado / 2) * factorUniforme * (1 - (p.profundidadCuello ?? 0.4) * p.estriccion * Math.exp(-((y - yCuello) ** 2) / (2 * sigmaCuello ** 2)));
 
   // Perfil izquierdo completo de la probeta, de arriba hacia abajo: hombro, transición, zona
   // calibrada (con la estricción) y hombro inferior. El lado derecho es su espejo.

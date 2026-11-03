@@ -6,6 +6,10 @@ import {
   BotonesExportar,
   CasillasGrafico,
   ControlesMovimiento,
+  EcuacionesVivo,
+  limitesConComparadas,
+  useHistorialEnsayos,
+  type Ecuacion,
   LineaEstado,
   MandosMaquina,
   ResumenItem,
@@ -24,6 +28,7 @@ import { useEnsayoMaquina, type ModeloEnsayo } from '../../trial/useEnsayoMaquin
 import { obtenerMaterial } from '../../engine/materials';
 import {
   cargaEnFlecha,
+  distribucionEsfuerzoFlexion,
   curvaCargaFlecha,
   inerciaSeccionFlexion,
   momentoCentral,
@@ -34,10 +39,10 @@ import {
 import { medir, INSTRUMENTOS, elegirCeldaCarga } from '../../engine/measurement';
 
 type TipoSeccionLocal = 'rectangular' | 'circular';
-type VistaGrafico = 'carga' | 'momento' | 'cortante';
+type VistaGrafico = 'carga' | 'momento' | 'cortante' | 'seccion';
 
 const ID_GRAFICO = 'grafico-ensayo-flexion';
-const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: false, energia: false, cuadricula: true, teorica: true };
+const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: false, energia: false, cuadricula: true, teorica: true, comparar: true };
 
 export function BendingBench({ onVolver }: { onVolver: () => void }) {
   useModoLab();
@@ -54,6 +59,7 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
   const [pasoJog, setPasoJog] = useState('0.01');
   const [vista, setVista] = useState<VistaGrafico>('carga');
   const [opciones, setOpciones] = useState<OpcionesGrafico>(OPCIONES_INICIALES);
+  const historial = useHistorialEnsayos();
 
   const material = obtenerMaterial(sesion.materialId)!;
   const ductil = material.modelo === 'elastico_plastico_bilineal';
@@ -91,7 +97,9 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
       };
     },
     clavePico: 'fuerza',
+    alReiniciar: () => historial.guardar(etiquetaEnsayo, traza),
   };
+  const etiquetaEnsayo = `${material.nombreCorto ?? material.nombre} · ${config === 'tres-puntos' ? '3P' : '4P'} · ${tipoSeccion === 'rectangular' ? `${fmt(b, 0)}×${fmt(h, 0)}` : `Ø${fmt(d, 0)}`} · L ${fmt(L, 0)}`;
   const m = useEnsayoMaquina(sesionEnsayo, modelo);
   const { sim: s, estado, fracturada, retirada, enMaquina, montada } = m;
   const terminado = fracturada || estado === 'finalizada';
@@ -192,6 +200,48 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
   const pasoActual = estado === 'desmontada' ? 2 : terminado ? 4 : 3;
   const formulaE = config === 'tres-puntos' ? 'E = P·L³/(48·I·δ)' : 'E = 23·P·L³/(1296·I·δ)';
   const formulaM = config === 'tres-puntos' ? 'M = P·L/4' : 'M = P·L/6';
+  const lim = limitesConComparadas(xFinal * 1.08, (Pmax / fP) * 1.15, historial.comparadas, !!opciones.comparar);
+
+  // Ecuaciones en vivo, con la carga y la flecha que leen ahora los instrumentos.
+  const Pv = typeof Pleida === 'number' ? Pleida : undefined;
+  const dV = typeof flechaLeida === 'number' ? flechaLeida : undefined;
+  const Mv = Pv !== undefined ? momentoCentral(Pv, L, config) : undefined;
+  const elasticoAhora = enMaquina && m.F > 0 && Math.abs(m.F - k * s.x) <= 0.03 * m.F;
+  const fluye = curva.PFluencia !== undefined && s.xMax > (curva.deltaFluencia ?? Infinity);
+  const ecuaciones: Ecuacion[] = [
+    tipoSeccion === 'rectangular'
+      ? { nombre: 'Momento de inercia', formula: 'I = b·h³/12', sustitucion: `${fmt(b, 1)}·(${fmt(h, 1)})³/12`, resultado: `${fmt(I, 1)} mm⁴` }
+      : { nombre: 'Momento de inercia', formula: 'I = π·d⁴/64', sustitucion: `π·(${fmt(d, 1)})⁴/64`, resultado: `${fmt(I, 1)} mm⁴` },
+    { nombre: 'Reacciones en los apoyos', formula: 'R = P/2', sustitucion: Pv !== undefined ? `${fmt(Pv, 1)} N / 2` : undefined, resultado: Pv !== undefined ? `${fmt(Pv / 2, 1)} N` : undefined },
+    {
+      nombre: 'Momento máximo (centro)',
+      formula: formulaM,
+      sustitucion: Pv !== undefined ? `${fmt(Pv, 1)} N · ${fmt(L, 0)} mm / ${config === 'tres-puntos' ? 4 : 6}` : undefined,
+      resultado: Mv !== undefined ? `${fmt(Mv / 1000, 3)} N·m` : undefined,
+    },
+    {
+      nombre: 'Esfuerzo en la fibra extrema',
+      formula: 'σ = M·c / I',
+      sustitucion: Mv !== undefined ? `${fmt(Mv, 0)} N·mm · ${fmt(c, 2)} mm / ${fmt(I, 1)} mm⁴` : undefined,
+      resultado: Mv !== undefined ? `${fmt((Mv * c) / I, 1)} MPa` : undefined,
+      inactiva: fluye,
+      nota: fluye ? 'La sección ya fluyó: la fórmula elástica sobrestima σ en la fibra (vea la pestaña «Esfuerzos σ(y)»).' : undefined,
+    },
+    {
+      nombre: 'Módulo de Young por flexión',
+      formula: formulaE,
+      sustitucion: elasticoAhora && Pv !== undefined && dV ? (config === 'tres-puntos' ? `${fmt(Pv, 1)}·${fmt(L, 0)}³/(48·${fmt(I, 1)}·${fmt(dV, 3)})` : `23·${fmt(Pv, 1)}·${fmt(L, 0)}³/(1296·${fmt(I, 1)}·${fmt(dV, 3)})`) : undefined,
+      resultado: elasticoAhora && Pv !== undefined && dV ? `${fmt(((config === 'tres-puntos' ? 1 / 48 : 23 / 1296) * Pv * L ** 3) / (I * dV) / 1000, 1)} GPa` : undefined,
+      inactiva: !elasticoAhora,
+      nota: elasticoAhora ? undefined : 'Solo en la zona elástica (recta inicial de la curva carga–flecha).',
+    },
+  ];
+
+  // Distribución σ(y) en la sección central (con esfuerzos residuales si se descargó).
+  const Mactual = momentoCentral(m.F, L, config);
+  const MmaxHistoria = momentoCentral(Penv(s.xMax), L, config);
+  const distribucion = vista === 'seccion' && montada ? distribucionEsfuerzoFlexion(material, seccion, Mactual, MmaxHistoria) : [];
+  const sigmaEscala = Math.max(material.propiedades.sigmaU_MPa ?? 0, ...distribucion.map((p) => Math.abs(p.sigma)), (Mactual * c) / I) * 1.12 || 1;
 
   return (
     <div className="lab">
@@ -236,12 +286,18 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
             regimen={regimen}
             detalle={<>Reacciones R = P/2 = {fmt(m.F / 2 / fP, enN ? 1 : 3)} {uP} · t = {fmt(s.t, 1)} s{kVis > 1.05 ? ` · escala gráfica de la flecha ×${fmt(kVis, 1)}` : ''}</>}
           />
+          <EcuacionesVivo ecuaciones={ecuaciones} />
         </section>
 
         <section className="lab-panel panel-columna">
           <div className="lab-panel-titulo">Gráficos</div>
           <Segmentado<VistaGrafico>
-            opciones={[{ valor: 'carga', etiqueta: 'Carga–flecha' }, { valor: 'momento', etiqueta: 'Momento M(x)' }, { valor: 'cortante', etiqueta: 'Cortante V(x)' }]}
+            opciones={[
+              { valor: 'carga', etiqueta: 'Carga–flecha' },
+              { valor: 'momento', etiqueta: 'Momento M(x)' },
+              { valor: 'cortante', etiqueta: 'Cortante V(x)' },
+              { valor: 'seccion', etiqueta: 'Esfuerzos σ(y)' },
+            ]}
             valor={vista}
             onChange={setVista}
           />
@@ -253,8 +309,10 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
                 subtitulo={`${material.nombre} — flexión en ${config === 'tres-puntos' ? '3' : '4'} puntos, L = ${fmt(L, 0)} mm`}
                 xEtiqueta="Flecha en el centro δ (mm)"
                 yEtiqueta={`Carga P (${uP})`}
-                xMax={xFinal * 1.08}
-                yMax={(Pmax / fP) * 1.15}
+                xMax={lim.xMax}
+                yMax={lim.yMax}
+                comparadas={historial.comparadas}
+                etiquetaActual={etiquetaEnsayo}
                 traza={traza}
                 referencia={referencia}
                 regiones={regiones}
@@ -296,9 +354,37 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
                 decimalesX={0}
               />
             )}
+            {vista === 'seccion' && (
+              <GraficoEnsayo
+                id={ID_GRAFICO}
+                titulo="Distribución de esfuerzos en la sección central"
+                subtitulo={
+                  m.F <= 0 && s.xMax > 0
+                    ? 'Sin carga: los esfuerzos que quedan son residuales (se anulan en conjunto)'
+                    : `M = ${fmt(Mactual / 1000, 2)} N·m · línea discontinua: teoría elástica σ = M·y/I`
+                }
+                xEtiqueta="Esfuerzo normal σ (MPa) · tracción +"
+                yEtiqueta="Altura y desde el eje neutro (mm)"
+                xMin={-sigmaEscala}
+                xMax={sigmaEscala}
+                yMin={-c * 1.1}
+                yMax={c * 1.1}
+                traza={distribucion.map((p) => ({ x: p.sigma, y: p.y }))}
+                referencia={[{ x: (Mactual * c) / I, y: -c }, { x: (-Mactual * c) / I, y: c }]}
+                opciones={{ ...opciones, regiones: false, energia: false, puntos: false, comparar: false }}
+              />
+            )}
           </div>
           {vista === 'carga' && (
-            <CasillasGrafico opciones={opciones} setOpciones={setOpciones} claves={['etiquetas', 'puntos', 'regiones', 'energia', 'cuadricula', 'teorica']} nombres={{ teorica: 'Recta elástica' }} />
+            <>
+              <CasillasGrafico
+                opciones={opciones}
+                setOpciones={setOpciones}
+                claves={['etiquetas', 'puntos', 'regiones', 'energia', 'cuadricula', 'teorica', ...(historial.comparadas.length ? (['comparar'] as const) : [])]}
+                nombres={{ teorica: 'Recta elástica' }}
+              />
+              {historial.comparadas.length > 0 && <button className="boton-texto" onClick={historial.limpiar}>Borrar ensayos comparados ({historial.comparadas.length})</button>}
+            </>
           )}
           <DisplayDigital
             items={[

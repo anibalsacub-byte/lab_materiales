@@ -29,6 +29,8 @@ export interface PropiedadesMaterial {
   epsilonF?: number; // deformación unitaria a la fractura (adimensional)
   /** Resistencia a compresión de los materiales frágiles (los dúctiles no rompen en compresión: se aplastan). */
   sigmaUc_MPa?: number;
+  /** Reducción de área a la rotura en tracción, Z = (A₀ − A_u)/A₀ (%). Solo donde hay dato de referencia. */
+  reduccionArea_pct?: number;
   // Propiedades adicionales para materiales ortótropos (compuestos reforzados con fibra)
   E2_MPa?: number; // módulo transversal
   G12_MPa?: number; // módulo de corte en el plano 1-2

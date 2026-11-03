@@ -320,3 +320,43 @@ export function cargaEnFlecha(curva: CurvaCargaFlecha, delta: number): number {
   const t = (delta - ds[lo]) / (ds[hi] - ds[lo] || 1);
   return P[lo] + t * (P[hi] - P[lo]);
 }
+
+/** Curvatura de la sección para un momento M (inversa de {@link momentoDesdeCurvatura}, por bisección). */
+export function curvaturaDesdeMomento(material: Material, s: SeccionFlexion, M: number): number {
+  if (M <= 0) return 0;
+  const E = material.propiedades.E_MPa ?? 200000;
+  const epsF = material.propiedades.epsilonF ?? 0.01;
+  let lo = 0;
+  let hi = (epsF * 0.999) / semialturaSeccion(s);
+  if ((momentoDesdeCurvatura(material, s, hi) ?? 0) <= M) return hi;
+  // Arranque elástico: acota la búsqueda cuando la sección aún no fluye.
+  const kElastico = M / (E * inerciaSeccionFlexion(s));
+  if ((momentoDesdeCurvatura(material, s, kElastico) ?? 0) >= M * (1 - 1e-9)) hi = Math.min(hi, kElastico);
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if ((momentoDesdeCurvatura(material, s, mid, 120) ?? Infinity) < M) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * Distribución de esfuerzo normal σ(y) en la sección para el momento actual M, habiendo llegado
+ * antes a Mmax. Si M < Mmax la viga se descargó: la descarga es elástica (Δσ = E·Δκ·y), así que
+ * quedan esfuerzos residuales en las fibras que fluyeron aunque el momento sea cero.
+ * Devuelve puntos (σ en MPa, y en mm) de la fibra inferior (−c) a la superior (+c).
+ */
+export function distribucionEsfuerzoFlexion(material: Material, s: SeccionFlexion, M: number, Mmax: number, nPuntos = 81): { sigma: number; y: number }[] {
+  const E = material.propiedades.E_MPa ?? 200000;
+  const c = semialturaSeccion(s);
+  const kappaMax = curvaturaDesdeMomento(material, s, Math.max(Mmax, M));
+  const kappa = kappaMax - (Math.max(Mmax, M) - M) / (E * inerciaSeccionFlexion(s));
+  const puntos: { sigma: number; y: number }[] = [];
+  for (let i = 0; i < nPuntos; i++) {
+    const y = -c + (2 * c * i) / (nPuntos - 1);
+    // Fibra superior comprimida (σ < 0) e inferior traccionada (σ > 0) bajo momento positivo.
+    const sigmaEnv = esfuerzoSinEstriccion(material, -kappaMax * y) ?? 0;
+    puntos.push({ sigma: sigmaEnv + E * (kappaMax - kappa) * y, y });
+  }
+  return puntos;
+}

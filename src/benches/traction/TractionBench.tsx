@@ -6,6 +6,9 @@ import {
   BotonesExportar,
   CasillasGrafico,
   ControlesMovimiento,
+  EcuacionesVivo,
+  limitesConComparadas,
+  useHistorialEnsayos,
   LineaEstado,
   MandosMaquina,
   ResumenItem,
@@ -19,6 +22,7 @@ import { COLORES_PROBETA } from '../../components/lab/coloresProbeta';
 import { GraficoEnsayo, type OpcionesGrafico, type PuntoClave, type RegionGrafico } from '../../components/svg/GraficoEnsayo';
 import { MarcoMaquinaSVG } from '../../components/svg/MarcoMaquinaSVG';
 import { MontajeTraccionSVG, yTravesanoTraccion } from './MontajeTraccionSVG';
+import { ecuacionesAxiales } from '../ecuacionesAxiales';
 import { useSesionEnsayo } from '../../trial/useSesionEnsayo';
 import { useEnsayoMaquina, type ModeloEnsayo } from '../../trial/useEnsayoMaquina';
 import { obtenerMaterial } from '../../engine/materials';
@@ -37,7 +41,7 @@ import type { Material } from '../../engine/types';
 type TipoSeccionLocal = 'circular' | 'rectangular';
 
 const ID_GRAFICO = 'grafico-ensayo-traccion';
-const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: false, energia: false, cuadricula: true, teorica: false };
+const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: false, energia: false, cuadricula: true, teorica: false, comparar: true };
 
 function deformacionFractura(m: Material): number {
   const { epsilonF, sigmaU_MPa, E_MPa } = m.propiedades;
@@ -77,6 +81,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
   const [velocidad, setVelocidad] = useState(() => velocidadSugerida(obtenerMaterial('astm-a36')!, 50));
   const [pasoJog, setPasoJog] = useState('0.01');
   const [opciones, setOpciones] = useState<OpcionesGrafico>(OPCIONES_INICIALES);
+  const historial = useHistorialEnsayos();
 
   const material = obtenerMaterial(sesion.materialId)!;
   const pc = useMemo(() => parametrosCurvaBilineal(material), [material]);
@@ -114,7 +119,9 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
       };
     },
     clavePico: 'fuerza',
+    alReiniciar: () => historial.guardar(etiquetaEnsayo, traza),
   };
+  const etiquetaEnsayo = `${material.nombreCorto ?? material.nombre} · ${tipoSeccion === 'circular' ? `Ø${fmt(d, 1)}` : `${fmt(b, 1)}×${fmt(h, 1)}`} · Lo ${fmt(L, 0)}`;
   const m = useEnsayoMaquina(sesionEnsayo, modelo);
   const { sim: s, estado, fracturada, retirada, enMaquina, montada } = m;
   const sigmaActual = m.F;
@@ -138,6 +145,9 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
   const displayPico = m.pico === undefined ? '—' : fmt(m.pico / 1000, 2);
 
   const k = Math.min(25, 0.6 / epsF);
+  // Reducción de área: el cuello dibujado se estrecha hasta el área final del material (si hay dato).
+  const Z = ductil ? material.propiedades.reduccionArea_pct : undefined;
+  const profundidadCuello = Z !== undefined && pc ? 1 - Math.sqrt((1 - Z / 100) * (1 + pc.epsUTS)) : 0.4;
   const estriccion = ductil && pc ? Math.min(Math.max((s.xMax - pc.epsUTS) / (pc.epsF - pc.epsUTS), 0), 1) : 0;
 
   const regimen = (() => {
@@ -192,6 +202,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
   const energia = trabajoDeformacion(s.traza.map((p) => ({ epsilon: p.x, sigma_MPa: p.F })));
   const registrados = s.verdaderos.filter((p) => p.manual).map((p) => ({ x: p.x, y: p.F }));
   const yMax = Math.max(sigmaU, pc?.sigmaY ?? 0) * 1.12;
+  const lim = limitesConComparadas(epsF * 1.08, yMax, historial.comparadas, !!opciones.comparar);
 
   // Resumen tras la fractura
   const fuerzas = sesion.mediciones.map((med) => med.lecturas.fuerza?.valor).filter((v): v is number => typeof v === 'number');
@@ -208,6 +219,20 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
   const calc = sesion.calculosEstudiante;
   const hayCalculo = ['sigma', 'epsilon', 'E', 'nu'].some((v) => calc[v] !== undefined);
   const pasoActual = estado === 'desmontada' ? 2 : fracturada ? 4 : 3;
+
+  // Ecuaciones en vivo, con las lecturas actuales de los instrumentos.
+  const ecuaciones = ecuacionesAxiales({
+    circular: tipoSeccion === 'circular',
+    d,
+    b,
+    h,
+    A,
+    L,
+    F: typeof Fleida === 'number' ? Fleida : undefined,
+    dL: typeof extLeida === 'number' ? extLeida : undefined,
+    epsTrans: m.lecturaVivo?.deformacionTransversal.valor,
+    elastico: enMaquina && m.F > 0 && Math.abs(m.F - E * s.x) <= 0.05 * m.F && (!pc || s.x <= pc.epsY * 0.98),
+  });
 
   return (
     <div className="lab">
@@ -239,6 +264,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
               alargamientoVisual={Math.min(k * s.x, 0.6)}
               alargamientoUniformeVisual={Math.min(k * Math.min(s.x, pc?.epsUTS ?? s.x), 0.6)}
               estriccion={estriccion}
+              profundidadCuello={profundidadCuello}
               fracturada={fracturada}
               tipoFractura={ductil ? 'ductil' : 'fragil'}
               mordazasCerradas={enMaquina}
@@ -253,6 +279,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
             regimen={regimen}
             detalle={<>Lo {fmt(L, 1)} → {fmt(L * (1 + s.x), 2)} mm (+{fmt(s.x * 100, 2)} %) · t = {fmt(s.t, 1)} s · escala gráfica del alargamiento ×{fmt(k, 1)}</>}
           />
+          <EcuacionesVivo ecuaciones={ecuaciones} />
         </section>
 
         {/* Columna de operación: curva, lecturas, mandos de la máquina y datos en vivo (la tabla ocupa el alto restante) */}
@@ -264,8 +291,10 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
             subtitulo={`${material.nombre}${material.condicion ? ` (${material.condicion})` : ''} — tracción`}
             xEtiqueta="Deformación unitaria ε (mm/mm)"
             yEtiqueta="Esfuerzo σ (MPa)"
-            xMax={epsF * 1.08}
-            yMax={yMax}
+            xMax={lim.xMax}
+            yMax={lim.yMax}
+            comparadas={historial.comparadas}
+            etiquetaActual={etiquetaEnsayo}
             traza={traza}
             referencia={referencia}
             regiones={regiones}
@@ -276,7 +305,8 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
             registrados={registrados}
             opciones={opciones}
           />
-          <CasillasGrafico opciones={opciones} setOpciones={setOpciones} claves={['etiquetas', 'puntos', 'regiones', 'offset', 'energia', 'cuadricula', 'teorica']} />
+          <CasillasGrafico opciones={opciones} setOpciones={setOpciones} claves={['etiquetas', 'puntos', 'regiones', 'offset', 'energia', 'cuadricula', 'teorica', ...(historial.comparadas.length ? (['comparar'] as const) : [])]} />
+          {historial.comparadas.length > 0 && <button className="boton-texto" onClick={historial.limpiar}>Borrar ensayos comparados ({historial.comparadas.length})</button>}
           <DisplayDigital
             items={[
               { etiqueta: 'Carga', valor: displayCarga, unidad: 'kN', alerta: displayCarga === 'OVL' },
@@ -410,6 +440,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
                 <ResumenItem etiqueta="Límite elástico convencional Rp0,2" valor={rp02 ? `${fmt(rp02.sigma_MPa, 0)} MPa` : 'No aplica (frágil)'} />
                 <ResumenItem etiqueta="Alargamiento a la rotura A" valor={`${fmt(alargamientoRotura, 1)} %`} />
                 <ResumenItem etiqueta="Deformación total en la rotura" valor={`${fmt(epsF * 100, 1)} %`} />
+                <ResumenItem etiqueta="Reducción de área Z = (A₀ − Au)/A₀" valor={Z !== undefined ? `${fmt(Z, 1)} % · ${tipoSeccion === 'circular' ? `du = ${fmt(d * Math.sqrt(1 - Z / 100), 2)} mm` : `Au = ${fmt(A * (1 - Z / 100), 1)} mm²`}` : ductil ? 'Sin dato en la biblioteca' : '≈ 0 % (frágil)'} />
                 <ResumenItem etiqueta="Energía absorbida (tenacidad)" valor={`${fmt(energia, 2)} MJ/m³`} />
               </div>
               <p className="nota">

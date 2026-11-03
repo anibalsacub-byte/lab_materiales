@@ -1,7 +1,7 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icono, Segmentado, Stepper } from './LabUI';
 import type { EnsayoMaquina, EstadoMaquina, FactorTiempo } from '../../trial/useEnsayoMaquina';
-import type { OpcionesGrafico } from '../svg/GraficoEnsayo';
+import type { CurvaComparada, OpcionesGrafico, PuntoXY } from '../svg/GraficoEnsayo';
 import type { PuntoMedicion } from '../../engine/types';
 import { exportarMedicionesCSV, exportarSesionJSON, exportarSvgComoPng } from '../../trial/exportar';
 
@@ -184,6 +184,7 @@ const NOMBRES_OPCIONES: Record<keyof OpcionesGrafico, string> = {
   energia: 'Energía',
   cuadricula: 'Cuadrícula',
   teorica: 'Curva teórica',
+  comparar: 'Comparar ensayos',
 };
 
 export function CasillasGrafico({
@@ -201,7 +202,7 @@ export function CasillasGrafico({
     <div className="opciones-grafico">
       {claves.map((clave) => (
         <label key={clave}>
-          <input type="checkbox" checked={opciones[clave]} onChange={(e) => setOpciones({ ...opciones, [clave]: e.target.checked })} />
+          <input type="checkbox" checked={!!opciones[clave]} onChange={(e) => setOpciones({ ...opciones, [clave]: e.target.checked })} />
           {nombres[clave] ?? NOMBRES_OPCIONES[clave]}
         </label>
       ))}
@@ -260,4 +261,71 @@ export function ResumenItem({ etiqueta, valor }: { etiqueta: string; valor: stri
       <div className="r-valor">{valor}</div>
     </div>
   );
+}
+
+// ---------- Ecuaciones en vivo ----------
+
+export interface Ecuacion {
+  nombre: string;
+  /** Fórmula simbólica, p. ej. «σ = F / A₀». */
+  formula: string;
+  /** Misma fórmula con los valores actuales sustituidos (sin el resultado). */
+  sustitucion?: string;
+  resultado?: string;
+  nota?: string;
+  /** Atenuada cuando no aplica en el estado actual (p. ej. E fuera de la zona elástica). */
+  inactiva?: boolean;
+}
+
+/** Fórmulas del ensayo con los valores medidos en este instante sustituidos, paso a paso. */
+export function EcuacionesVivo({ ecuaciones }: { ecuaciones: Ecuacion[] }) {
+  return (
+    <details className="ecuaciones-vivo" open>
+      <summary>Ecuaciones en vivo — con los valores que miden ahora los instrumentos</summary>
+      <div className="ec-lista">
+        {ecuaciones.map((e) => (
+          <div key={e.nombre} className={`ec ${e.inactiva ? 'ec-inactiva' : ''}`}>
+            <div className="ec-nombre">{e.nombre}</div>
+            <div className="ec-linea">
+              <span className="ec-formula">{e.formula}</span>
+              {e.sustitucion && <> = <span className="ec-sust">{e.sustitucion}</span></>}
+              {e.resultado && <> = <strong className="ec-res">{e.resultado}</strong></>}
+            </div>
+            {e.nota && <div className="ec-nota">{e.nota}</div>}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+// ---------- Comparación con ensayos anteriores ----------
+
+const COLORES_COMPARADAS = ['#f0b429', '#c792ea', '#3ecf8e', '#ff8a65'];
+
+/** Guarda las curvas de los últimos ensayos para superponerlas en el gráfico del siguiente. */
+export function useHistorialEnsayos(maximo = 4) {
+  const [comparadas, setComparadas] = useState<CurvaComparada[]>([]);
+  const contador = useRef(0);
+  return {
+    comparadas,
+    guardar: (etiqueta: string, puntos: PuntoXY[]) => {
+      if (puntos.length < 3) return;
+      const color = COLORES_COMPARADAS[contador.current++ % COLORES_COMPARADAS.length];
+      setComparadas((prev) => [...prev, { etiqueta, color, puntos }].slice(-maximo));
+    },
+    limpiar: () => setComparadas([]),
+  };
+}
+
+/** Amplía los ejes para que las curvas comparadas no queden cortadas. */
+export function limitesConComparadas(xMax: number, yMax: number, comparadas: CurvaComparada[], activo: boolean) {
+  if (!activo) return { xMax, yMax };
+  let x = xMax;
+  let y = yMax;
+  for (const cc of comparadas) for (const p of cc.puntos) {
+    x = Math.max(x, p.x * 1.04);
+    y = Math.max(y, p.y * 1.08);
+  }
+  return { xMax: x, yMax: y };
 }

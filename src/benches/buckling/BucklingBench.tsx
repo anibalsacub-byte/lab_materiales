@@ -6,6 +6,10 @@ import {
   BotonesExportar,
   CasillasGrafico,
   ControlesMovimiento,
+  EcuacionesVivo,
+  limitesConComparadas,
+  useHistorialEnsayos,
+  type Ecuacion,
   LineaEstado,
   MandosMaquina,
   ResumenItem,
@@ -33,16 +37,20 @@ import {
   longitudEfectiva,
   radioGiro,
   verificarAplicabilidadEuler,
+  esbeltezTransicionJohnson,
+  esfuerzoCriticoEuler,
+  esfuerzoCriticoJohnsonEuler,
   type ColumnaEnsayo,
   type CondicionApoyo,
 } from '../../engine/mechanics/buckling';
 import { calcularSeccion } from '../../engine/sections';
 import { medir, INSTRUMENTOS, elegirCeldaCarga } from '../../engine/measurement';
 
-type TipoSeccionLocal = 'circular' | 'rectangular';
+type TipoSeccionLocal = 'circular' | 'tubular' | 'rectangular';
+type VistaGrafico = 'carga' | 'esbeltez';
 
 const ID_GRAFICO = 'grafico-ensayo-pandeo';
-const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: true, energia: false, cuadricula: true, teorica: true };
+const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: true, energia: false, cuadricula: true, teorica: true, comparar: true };
 
 export function BucklingBench({ onVolver }: { onVolver: () => void }) {
   useModoLab();
@@ -51,6 +59,7 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
 
   const [tipoSeccion, setTipoSeccion] = useState<TipoSeccionLocal>('circular');
   const [d, setD] = useState(10);
+  const [dInt, setDInt] = useState(7);
   const [b, setB] = useState(20);
   const [h, setH] = useState(6);
   const [L, setL] = useState(800);
@@ -59,6 +68,8 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
   const [velocidad, setVelocidad] = useState(1);
   const [pasoJog, setPasoJog] = useState('0.01');
   const [opciones, setOpciones] = useState<OpcionesGrafico>(OPCIONES_INICIALES);
+  const [vista, setVista] = useState<VistaGrafico>('carga');
+  const historial = useHistorialEnsayos();
 
   const material = obtenerMaterial(sesion.materialId)!;
   const ductil = material.modelo === 'elastico_plastico_bilineal';
@@ -67,7 +78,9 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
 
   const seccion = useMemo(() => {
     try {
-      return tipoSeccion === 'circular' ? calcularSeccion({ tipo: 'circular_maciza', d }) : calcularSeccion({ tipo: 'rectangular', b, h });
+      if (tipoSeccion === 'circular') return calcularSeccion({ tipo: 'circular_maciza', d });
+      if (tipoSeccion === 'tubular') return calcularSeccion({ tipo: 'circular_tubular', d, dInt });
+      return calcularSeccion({ tipo: 'rectangular', b, h });
     } catch {
       return null;
     }
@@ -75,7 +88,7 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
   const A = seccion?.area_mm2 ?? 1;
   const Imin = seccion ? Math.min(seccion.Ix_mm4, seccion.Iy_mm4) : 1;
   // Pandea alrededor del eje de menor inercia: la fibra extrema está a media dimensión menor.
-  const espesorPandeo = tipoSeccion === 'circular' ? d : Math.min(b, h);
+  const espesorPandeo = tipoSeccion === 'rectangular' ? Math.min(b, h) : d;
   const K = APOYOS[condicion].K;
   const Le = longitudEfectiva(L, K);
   const r = radioGiro(Imin, A);
@@ -127,7 +140,9 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
       };
     },
     clavePico: 'fuerza',
+    alReiniciar: () => historial.guardar(etiquetaEnsayo, traza),
   };
+  const etiquetaEnsayo = `${material.nombreCorto ?? material.nombre} · ${tipoSeccion === 'rectangular' ? `${fmt(b, 0)}×${fmt(h, 0)}` : `Ø${fmt(d, 0)}${tipoSeccion === 'tubular' ? `/${fmt(dInt, 1)}` : ''}`} · L ${fmt(L, 0)} · K ${fmt(K, 2)}`;
   const m = useEnsayoMaquina(sesionEnsayo, modelo);
   const { sim: s, estado, fracturada, retirada, enMaquina, montada } = m;
   const terminado = fracturada || estado === 'finalizada';
@@ -210,6 +225,46 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
   const calc = sesion.calculosEstudiante;
   const hayCalculo = ['Le', 'esbeltez', 'Pcr'].some((v) => calc[v] !== undefined);
   const pasoActual = estado === 'desmontada' ? 2 : terminado ? 4 : 3;
+  const lim = limitesConComparadas(xMaxGrafico, (Pmax / fP) * 1.15, historial.comparadas, !!opciones.comparar);
+
+  // Curva de diseño Euler–Johnson (σcr frente a λ) y posición de esta columna.
+  const sigmaYCol = ductil ? material.propiedades.sigmaY_MPa : undefined;
+  const lambdaT = sigmaYCol !== undefined ? esbeltezTransicionJohnson(E, sigmaYCol) : undefined;
+  const lambdaEjeMax = Math.max(250, lambda * 1.25);
+  const sigmaEjeMax = (sigmaYCol ?? sigmaLimite ?? esfuerzoCriticoEuler(E, Math.max(lambda, 20))) * 1.15;
+  const sigmaCrDiseno = sigmaYCol !== undefined ? esfuerzoCriticoJohnsonEuler(E, sigmaYCol, lambda) : esfuerzoCriticoEuler(E, lambda);
+  const curvaDiseno: { x: number; y: number }[] = [];
+  const curvaEuler: { x: number; y: number }[] = [];
+  for (let i = 1; i <= 200; i++) {
+    const l = (lambdaEjeMax * i) / 200;
+    const euler = esfuerzoCriticoEuler(E, l);
+    if (euler <= sigmaEjeMax) curvaEuler.push({ x: l, y: euler });
+    const diseno = sigmaYCol !== undefined ? esfuerzoCriticoJohnsonEuler(E, sigmaYCol, l) : euler;
+    if (diseno <= sigmaEjeMax) curvaDiseno.push({ x: l, y: diseno });
+  }
+  if (sigmaYCol !== undefined) curvaDiseno.unshift({ x: 0, y: sigmaYCol });
+
+  // Ecuaciones en vivo.
+  const Pv = typeof Pleida === 'number' ? Pleida : undefined;
+  const ecuaciones: Ecuacion[] = [
+    { nombre: 'Longitud efectiva', formula: 'Le = K·L', sustitucion: `${fmt(K, 3)} · ${fmt(L, 0)} mm`, resultado: `${fmt(Le, 0)} mm` },
+    { nombre: 'Radio de giro', formula: 'r = √(I / A)', sustitucion: `√(${fmt(Imin, 0)} mm⁴ / ${fmt(A, 1)} mm²)`, resultado: `${fmt(r, 2)} mm` },
+    {
+      nombre: 'Esbeltez',
+      formula: 'λ = Le / r',
+      sustitucion: `${fmt(Le, 0)} / ${fmt(r, 2)}`,
+      resultado: fmt(lambda, 1),
+      nota:
+        lambdaT !== undefined && sigmaYCol !== undefined
+          ? `Euler es teóricamente válido si λ ≥ √(π²E/σY) = ${fmt(Math.sqrt((Math.PI ** 2 * E) / sigmaYCol), 1)} (σcr ≤ σY). En diseño, por imperfecciones y esfuerzos residuales, se usa Johnson hasta λt = √(2π²E/σY) = ${fmt(lambdaT, 1)}: esta columna es ${lambda >= lambdaT ? 'esbelta (Euler)' : 'intermedia (Johnson)'}.`
+          : undefined,
+    },
+    { nombre: 'Carga crítica de Euler', formula: 'Pcr = π²·E·I / Le²', sustitucion: `π²·${fmt(E, 0)}·${fmt(Imin, 0)} / ${fmt(Le, 0)}²`, resultado: `${fmt(Pcr, 0)} N` },
+    ...(lambdaT !== undefined && lambda < lambdaT
+      ? [{ nombre: 'Johnson (columna intermedia)', formula: 'σcr = σY − (σY·λ/2π)² / E', sustitucion: `${fmt(sigmaYCol!, 0)} − (${fmt(sigmaYCol!, 0)}·${fmt(lambda, 1)}/2π)² / ${fmt(E, 0)}`, resultado: `${fmt(sigmaCrDiseno, 1)} MPa → P = ${fmt(sigmaCrDiseno * A, 0)} N` }]
+      : []),
+    { nombre: 'Carga relativa', formula: 'P / Pcr', sustitucion: Pv !== undefined ? `${fmt(Pv, 0)} N / ${fmt(Pcr, 0)} N` : undefined, resultado: Pv !== undefined ? fmt(Pv / Pcr, 3) : undefined },
+  ];
 
   return (
     <div className="lab">
@@ -245,7 +300,11 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
               probetaVisible={!retirada}
               enContacto={enMaquina}
               colorProbeta={COLORES_PROBETA[material.categoria]}
-              cotas={[`δ = ${fmt(delta, 2)} mm`, `L = ${fmt(L, 0)} mm`, tipoSeccion === 'circular' ? `Ø ${fmt(d, 1)}` : `${fmt(b, 1)} × ${fmt(h, 1)}`]}
+              cotas={[
+                `δ = ${fmt(delta, 2)} mm`,
+                `L = ${fmt(L, 0)} mm`,
+                tipoSeccion === 'circular' ? `Ø ${fmt(d, 1)}` : tipoSeccion === 'tubular' ? `Ø ${fmt(d, 1)} / ${fmt(dInt, 1)}` : `${fmt(b, 1)} × ${fmt(h, 1)}`,
+              ]}
             />
           </MarcoMaquinaSVG>
           <LineaEstado
@@ -254,33 +313,76 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
             regimen={regimen}
             detalle={<>u = {fmt(s.x, 3)} mm · P/Pcr = {fmt(m.F / Pcr, 3)} · t = {fmt(s.t, 1)} s · escala gráfica de la flecha ×{fmt(kVis, 1)}</>}
           />
+          <EcuacionesVivo ecuaciones={ecuaciones} />
         </section>
 
         <section className="lab-panel panel-columna">
-          <div className="lab-panel-titulo">Curva carga–flecha lateral</div>
-          <GraficoEnsayo
-            id={ID_GRAFICO}
-            titulo="Carga axial–flecha lateral"
-            subtitulo={`${material.nombre} — ${APOYOS[condicion].nombre}, L = ${fmt(L, 0)} mm, δ₀ = ${fmt(delta0, 2)} mm`}
-            xEtiqueta="Flecha lateral δ (mm)"
-            yEtiqueta={`Carga axial P (${uP})`}
-            xMax={xMaxGrafico}
-            yMax={(Pmax / fP) * 1.15}
-            traza={traza}
-            referencia={referencia}
-            regiones={regiones}
-            puntosClave={puntosClave}
-            lineaOffset={lineaPcr}
-            puntoActual={montada ? { x: delta, y: m.F / fP, fracturado: fracturada } : undefined}
-            registrados={s.verdaderos.filter((p) => p.manual).map((p) => ({ x: flechaEn(p.x, p.x, p.F), y: p.F / fP }))}
-            opciones={opciones}
+          <div className="lab-panel-titulo">Gráficos</div>
+          <Segmentado<VistaGrafico>
+            opciones={[{ valor: 'carga', etiqueta: 'Carga–flecha lateral' }, { valor: 'esbeltez', etiqueta: 'Euler–Johnson σcr(λ)' }]}
+            valor={vista}
+            onChange={setVista}
           />
-          <CasillasGrafico
-            opciones={opciones}
-            setOpciones={setOpciones}
-            claves={['etiquetas', 'puntos', 'regiones', 'offset', 'cuadricula', 'teorica']}
-            nombres={{ offset: 'Carga crítica Pcr', teorica: 'Teoría δ₀/(1 − P/Pcr)' }}
-          />
+          <div style={{ marginTop: 8 }}>
+            {vista === 'carga' ? (
+              <GraficoEnsayo
+                id={ID_GRAFICO}
+                titulo="Carga axial–flecha lateral"
+                subtitulo={`${material.nombre} — ${APOYOS[condicion].nombre}, L = ${fmt(L, 0)} mm, δ₀ = ${fmt(delta0, 2)} mm`}
+                xEtiqueta="Flecha lateral δ (mm)"
+                yEtiqueta={`Carga axial P (${uP})`}
+                xMax={lim.xMax}
+                yMax={lim.yMax}
+                comparadas={historial.comparadas}
+                etiquetaActual={etiquetaEnsayo}
+                traza={traza}
+                referencia={referencia}
+                regiones={regiones}
+                puntosClave={puntosClave}
+                lineaOffset={lineaPcr}
+                puntoActual={montada ? { x: delta, y: m.F / fP, fracturado: fracturada } : undefined}
+                registrados={s.verdaderos.filter((p) => p.manual).map((p) => ({ x: flechaEn(p.x, p.x, p.F), y: p.F / fP }))}
+                opciones={opciones}
+              />
+            ) : (
+              <GraficoEnsayo
+                id={ID_GRAFICO}
+                titulo="Esfuerzo crítico en función de la esbeltez"
+                subtitulo={sigmaYCol !== undefined ? `${material.nombre}: Johnson para λ < λt = ${fmt(lambdaT!, 0)}, Euler para λ ≥ λt` : `${material.nombre}: sin σY, solo Euler`}
+                xEtiqueta="Esbeltez λ = K·L/r"
+                yEtiqueta="Esfuerzo crítico σcr (MPa)"
+                xMax={lambdaEjeMax}
+                yMax={sigmaEjeMax}
+                traza={curvaDiseno}
+                referencia={curvaEuler}
+                regiones={
+                  lambdaT !== undefined
+                    ? [
+                        { desde: 0, hasta: lambdaT, nombre: 'Intermedia (Johnson)', color: '#f0b429' },
+                        { desde: lambdaT, hasta: lambdaEjeMax, nombre: 'Esbelta (Euler)', color: '#4f9dff' },
+                      ]
+                    : []
+                }
+                puntosClave={[
+                  { x: lambda, y: sigmaCrDiseno, etiqueta: `Esta columna: λ = ${fmt(lambda, 0)}`, color: '#ff9f43' },
+                  ...(terminado ? [{ x: lambda, y: PmaxMedida / A, etiqueta: `Medido: Pmáx/A = ${fmt(PmaxMedida / A, 0)} MPa`, color: '#3ecf8e' }] : []),
+                ]}
+                opciones={{ ...opciones, energia: false, offset: false, comparar: false }}
+                decimalesX={0}
+              />
+            )}
+          </div>
+          {vista === 'carga' && (
+            <>
+              <CasillasGrafico
+                opciones={opciones}
+                setOpciones={setOpciones}
+                claves={['etiquetas', 'puntos', 'regiones', 'offset', 'cuadricula', 'teorica', ...(historial.comparadas.length ? (['comparar'] as const) : [])]}
+                nombres={{ offset: 'Carga crítica Pcr', teorica: 'Teoría δ₀/(1 − P/Pcr)' }}
+              />
+              {historial.comparadas.length > 0 && <button className="boton-texto" onClick={historial.limpiar}>Borrar ensayos comparados ({historial.comparadas.length})</button>}
+            </>
+          )}
           <DisplayDigital
             items={[
               { etiqueta: 'Carga', valor: displayCarga, unidad: uP, alerta: displayCarga === 'OVL' },
@@ -320,13 +422,16 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
           >
             <Segmentado
               etiqueta="Sección"
-              opciones={[{ valor: 'circular', etiqueta: 'Circular' }, { valor: 'rectangular', etiqueta: 'Rectangular' }]}
+              opciones={[{ valor: 'circular', etiqueta: 'Circular' }, { valor: 'tubular', etiqueta: 'Tubo' }, { valor: 'rectangular', etiqueta: 'Rectangular' }]}
               valor={tipoSeccion}
               onChange={setTipoSeccion}
               disabled={montada}
             />
-            {tipoSeccion === 'circular' ? (
-              <Stepper etiqueta="Diámetro d (mm)" valor={d} onChange={setD} min={4} max={30} paso={1} decimales={0} disabled={montada} />
+            {tipoSeccion !== 'rectangular' ? (
+              <>
+                <Stepper etiqueta={tipoSeccion === 'tubular' ? 'Diámetro exterior D (mm)' : 'Diámetro d (mm)'} valor={d} onChange={setD} min={4} max={30} paso={1} decimales={0} disabled={montada} />
+                {tipoSeccion === 'tubular' && <Stepper etiqueta="Diámetro interior (mm)" valor={dInt} onChange={setDInt} min={1} max={d - 1} paso={0.5} disabled={montada} />}
+              </>
             ) : (
               <>
                 <Stepper etiqueta="Ancho b (mm)" valor={b} onChange={setB} min={4} max={60} paso={1} decimales={0} disabled={montada} />

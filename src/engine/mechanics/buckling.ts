@@ -109,7 +109,7 @@ export function verificarAplicabilidadEuler(
     esbeltezCritica: esbCrit,
     mensaje: aplicable
       ? `Esbeltez (${esbeltezValor.toFixed(1)}) ≥ esbeltez crítica (${esbCrit.toFixed(1)}): la columna es esbelta y el pandeo elástico de Euler gobierna la falla.`
-      : `Esbeltez (${esbeltezValor.toFixed(1)}) < esbeltez crítica (${esbCrit.toFixed(1)}): la columna es corta/intermedia. Fluiría antes de alcanzar la carga de Euler; esta fórmula no es válida y se requiere un criterio inelástico fuera del alcance de este banco.`,
+      : `Esbeltez (${esbeltezValor.toFixed(1)}) < esbeltez crítica (${esbCrit.toFixed(1)}): la columna es corta/intermedia. Fluiría antes de alcanzar la carga de Euler; la fórmula de Euler no es válida: se requiere un criterio inelástico, como la parábola de Johnson.`,
   };
 }
 
@@ -248,4 +248,24 @@ export function desplazamientoParaFlecha(col: ColumnaEnsayo, delta: number, hito
   if (col.delta0 <= 0) return (Pcr * col.L) / (col.E * col.A) + (Math.PI ** 2 * delta ** 2) / (4 * Le);
   const P = Math.max(Pcr * (1 - col.delta0 / Math.max(delta, col.delta0 * 1.000001)), 0);
   return cinematica(col, P, delta);
+}
+
+/**
+ * Esbeltez de transición entre la parábola de Johnson y la hipérbola de Euler: λt = √(2π²E/σY),
+ * donde el esfuerzo crítico de Euler vale σY/2.
+ */
+export function esbeltezTransicionJohnson(E_MPa: number, sigmaY_MPa: number): number {
+  return Math.sqrt((2 * Math.PI ** 2 * E_MPa) / sigmaY_MPa);
+}
+
+/**
+ * Esfuerzo crítico de diseño: parábola de Johnson σcr = σY − (σY·λ/2π)²/E para columnas
+ * intermedias (λ < λt) y Euler π²E/λ² para las esbeltas. Johnson parte de σY en λ = 0 y se une a
+ * Euler con la misma pendiente en λt. Es una fórmula empírica de diseño (columnas con
+ * imperfecciones y esfuerzos residuales típicos), no un resultado exacto.
+ */
+export function esfuerzoCriticoJohnsonEuler(E_MPa: number, sigmaY_MPa: number, lambda: number): number {
+  const lt = esbeltezTransicionJohnson(E_MPa, sigmaY_MPa);
+  if (lambda >= lt) return esfuerzoCriticoEuler(E_MPa, lambda);
+  return sigmaY_MPa - (sigmaY_MPa * lambda / (2 * Math.PI)) ** 2 / E_MPa;
 }

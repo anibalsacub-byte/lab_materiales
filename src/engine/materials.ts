@@ -13,6 +13,8 @@ import type { Material } from './types';
  */
 const FUENTE_METALES =
   'Valores típicos de referencia (Shigley, Mechanical Engineering Design; ASM Handbook) — aproximados para fines didácticos.';
+// Reducción de área: Shigley, tablas A-20 (1018 estirado en frío, 1045 laminado en caliente; A36 como el 1020
+// laminado en caliente, de resistencia similar) y A-21 (4140 normalizado).
 const FUENTE_POLIMEROS =
   'Valores típicos de referencia (Callister, Materials Science and Engineering; fichas técnicas de fabricante genéricas) — aproximados para fines didácticos.';
 const FUENTE_COMPUESTOS =
@@ -30,7 +32,7 @@ export const MATERIALES: Material[] = [
     condicion: 'laminado en caliente',
     modelo: 'elastico_plastico_bilineal',
     mesetaFluencia: true,
-    propiedades: { densidad_kg_m3: 7850, E_MPa: 200000, nu: 0.26, sigmaY_MPa: 250, sigmaU_MPa: 400, epsilonF: 0.20 },
+    propiedades: { densidad_kg_m3: 7850, E_MPa: 200000, nu: 0.26, sigmaY_MPa: 250, sigmaU_MPa: 400, epsilonF: 0.20, reduccionArea_pct: 50 },
     fuente: FUENTE_METALES,
   },
   {
@@ -41,7 +43,7 @@ export const MATERIALES: Material[] = [
     condicion: 'estirado en frío',
     modelo: 'elastico_plastico_bilineal',
     mesetaFluencia: true,
-    propiedades: { densidad_kg_m3: 7870, E_MPa: 200000, nu: 0.29, sigmaY_MPa: 370, sigmaU_MPa: 440, epsilonF: 0.15 },
+    propiedades: { densidad_kg_m3: 7870, E_MPa: 200000, nu: 0.29, sigmaY_MPa: 370, sigmaU_MPa: 440, epsilonF: 0.15, reduccionArea_pct: 40 },
     fuente: FUENTE_METALES,
   },
   {
@@ -52,7 +54,7 @@ export const MATERIALES: Material[] = [
     condicion: 'laminado en caliente',
     modelo: 'elastico_plastico_bilineal',
     mesetaFluencia: true,
-    propiedades: { densidad_kg_m3: 7850, E_MPa: 200000, nu: 0.29, sigmaY_MPa: 310, sigmaU_MPa: 565, epsilonF: 0.12 },
+    propiedades: { densidad_kg_m3: 7850, E_MPa: 200000, nu: 0.29, sigmaY_MPa: 310, sigmaU_MPa: 565, epsilonF: 0.12, reduccionArea_pct: 40 },
     fuente: FUENTE_METALES,
   },
   // ---- Aceros aleados ----
@@ -64,7 +66,7 @@ export const MATERIALES: Material[] = [
     condicion: 'normalizado',
     modelo: 'elastico_plastico_bilineal',
     mesetaFluencia: true,
-    propiedades: { densidad_kg_m3: 7850, E_MPa: 205000, nu: 0.29, sigmaY_MPa: 655, sigmaU_MPa: 1020, epsilonF: 0.08 },
+    propiedades: { densidad_kg_m3: 7850, E_MPa: 205000, nu: 0.29, sigmaY_MPa: 655, sigmaU_MPa: 1020, epsilonF: 0.08, reduccionArea_pct: 46.8 },
     fuente: FUENTE_METALES,
   },
   {

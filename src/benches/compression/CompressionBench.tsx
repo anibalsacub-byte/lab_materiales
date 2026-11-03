@@ -6,6 +6,9 @@ import {
   BotonesExportar,
   CasillasGrafico,
   ControlesMovimiento,
+  EcuacionesVivo,
+  limitesConComparadas,
+  useHistorialEnsayos,
   LineaEstado,
   MandosMaquina,
   ResumenItem,
@@ -19,6 +22,7 @@ import { COLORES_PROBETA } from '../../components/lab/coloresProbeta';
 import { GraficoEnsayo, type OpcionesGrafico, type PuntoClave, type RegionGrafico } from '../../components/svg/GraficoEnsayo';
 import { MarcoMaquinaSVG } from '../../components/svg/MarcoMaquinaSVG';
 import { MontajeCompresionSVG, geometriaVisualCompresion, yTravesanoCompresion } from './MontajeCompresionSVG';
+import { ecuacionesAxiales } from '../ecuacionesAxiales';
 import { useSesionEnsayo } from '../../trial/useSesionEnsayo';
 import { useEnsayoMaquina, type ModeloEnsayo } from '../../trial/useEnsayoMaquina';
 import { obtenerMaterial } from '../../engine/materials';
@@ -30,7 +34,7 @@ import type { Material } from '../../engine/types';
 type TipoSeccionLocal = 'circular' | 'rectangular';
 
 const ID_GRAFICO = 'grafico-ensayo-compresion';
-const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: false, energia: false, cuadricula: true, teorica: false };
+const OPCIONES_INICIALES: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: true, offset: false, energia: false, cuadricula: true, teorica: false, comparar: true };
 /** Acortamiento al que se detiene el ensayo de un material dúctil (no rompe: se aplasta). */
 const ACORTAMIENTO_FIN = 0.5;
 /** Capacidad de la máquina (la celda mayor, con margen). */
@@ -65,6 +69,7 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
   const [velocidad, setVelocidad] = useState(13);
   const [pasoJog, setPasoJog] = useState('0.01');
   const [opciones, setOpciones] = useState<OpcionesGrafico>(OPCIONES_INICIALES);
+  const historial = useHistorialEnsayos();
 
   const material = obtenerMaterial(sesion.materialId)!;
   const pc = useMemo(() => parametrosCurvaBilineal(material), [material]);
@@ -110,7 +115,9 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
       };
     },
     clavePico: 'fuerza',
+    alReiniciar: () => historial.guardar(etiquetaEnsayo, traza),
   };
+  const etiquetaEnsayo = `${material.nombreCorto ?? material.nombre} · ${tipoSeccion === 'circular' ? `Ø${fmt(d, 0)}` : `${fmt(b, 0)}×${fmt(h, 0)}`} · Lo ${fmt(L, 0)}`;
   const m = useEnsayoMaquina(sesionEnsayo, modelo);
   const { sim: s, estado, fracturada, retirada, enMaquina, montada } = m;
   const terminado = fracturada || estado === 'finalizada';
@@ -205,6 +212,20 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
   const hayCalculo = ['sigma', 'epsilon', 'E', 'nu'].some((v) => calc[v] !== undefined);
   const pasoActual = estado === 'desmontada' ? 2 : terminado ? 4 : 3;
   const anchoFinal = anchoMenor / Math.sqrt(Math.max(1 - s.x, 0.05));
+  const lim = limitesConComparadas(xFinal * 1.08, sigmaMaxEnsayo * 1.12, historial.comparadas, !!opciones.comparar);
+  const ecuaciones = ecuacionesAxiales({
+    circular: tipoSeccion === 'circular',
+    d,
+    b,
+    h,
+    A,
+    L,
+    F: typeof Fleida === 'number' ? Fleida : undefined,
+    dL: typeof acortLeido === 'number' ? acortLeido : undefined,
+    epsTrans: m.lecturaVivo?.deformacionTransversal.valor,
+    elastico: enMaquina && m.F > 0 && Math.abs(m.F - E * s.x) <= 0.05 * m.F && (!pc || s.x <= pc.epsY * 0.98),
+    compresion: true,
+  });
 
   return (
     <div className="lab">
@@ -248,6 +269,7 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
             regimen={regimen}
             detalle={<>Lo {fmt(L, 1)} → {fmt(L * (1 - s.x), 2)} mm (−{fmt(s.x * 100, 2)} %) · t = {fmt(s.t, 1)} s{k > 1.05 ? ` · escala gráfica del acortamiento ×${fmt(k, 1)}` : ''}</>}
           />
+          <EcuacionesVivo ecuaciones={ecuaciones} />
         </section>
 
         <section className="lab-panel panel-columna">
@@ -258,8 +280,10 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
             subtitulo={`${material.nombre}${material.condicion ? ` (${material.condicion})` : ''} — compresión`}
             xEtiqueta="Acortamiento unitario ε (mm/mm)"
             yEtiqueta="Esfuerzo de compresión σ (MPa)"
-            xMax={xFinal * 1.08}
-            yMax={sigmaMaxEnsayo * 1.12}
+            xMax={lim.xMax}
+            yMax={lim.yMax}
+            comparadas={historial.comparadas}
+            etiquetaActual={etiquetaEnsayo}
             traza={traza}
             referencia={referencia}
             regiones={regiones}
@@ -270,7 +294,8 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
             registrados={s.verdaderos.filter((p) => p.manual).map((p) => ({ x: p.x, y: p.F }))}
             opciones={opciones}
           />
-          <CasillasGrafico opciones={opciones} setOpciones={setOpciones} claves={['etiquetas', 'puntos', 'regiones', 'offset', 'energia', 'cuadricula', 'teorica']} />
+          <CasillasGrafico opciones={opciones} setOpciones={setOpciones} claves={['etiquetas', 'puntos', 'regiones', 'offset', 'energia', 'cuadricula', 'teorica', ...(historial.comparadas.length ? (['comparar'] as const) : [])]} />
+          {historial.comparadas.length > 0 && <button className="boton-texto" onClick={historial.limpiar}>Borrar ensayos comparados ({historial.comparadas.length})</button>}
           <DisplayDigital
             items={[
               { etiqueta: 'Carga', valor: displayCarga, unidad: 'kN', alerta: displayCarga === 'OVL' },

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { obtenerMaterial, moduloCorte } from '../materials';
 import { deformacionRoturaCompresion, esfuerzoCompresion, esfuerzoEnDeformacion, esfuerzoSinEstriccion, parametrosCurvaBilineal } from '../mechanics/axial';
-import { cargaEnFlecha, curvaCargaFlecha, inerciaSeccionFlexion, momentoDesdeCurvatura } from '../mechanics/bending';
-import { deformacionAngularRotura, momentoPolarInerciaCircular, parTorsor } from '../mechanics/torsion';
-import { cargaCriticaEuler, deflexionConImperfeccion, estadoColumna, hitoColumna, type ColumnaEnsayo } from '../mechanics/buckling';
+import { cargaEnFlecha, curvaCargaFlecha, distribucionEsfuerzoFlexion, inerciaSeccionFlexion, momentoDesdeCurvatura } from '../mechanics/bending';
+import { deformacionAngularRotura, distribucionCortante, momentoPolarInerciaCircular, parTorsor } from '../mechanics/torsion';
+import { cargaCriticaEuler, deflexionConImperfeccion, esbeltezTransicionJohnson, esfuerzoCriticoJohnsonEuler, estadoColumna, hitoColumna, type ColumnaEnsayo } from '../mechanics/buckling';
 
 const a36 = obtenerMaterial('astm-a36')!;
 const fundicion = obtenerMaterial('fundicion-gris-clase30')!;
@@ -137,5 +137,49 @@ describe('Pandeo con control por desplazamiento', () => {
     expect(p.sigmaY).toBe(250);
     const perfecta = { ...base, delta0: 0 };
     for (const u of [0.1, 0.5, 1, 3]) expect(estadoColumna(perfecta, u).P).toBeLessThanOrEqual(Pcr + 1e-6);
+  });
+});
+
+describe('Distribuciones de esfuerzo en la sección', () => {
+  it('flexión elástica: σ(y) lineal, con σ = M·c/I en la fibra extrema', () => {
+    const rect = { tipo: 'rectangular' as const, b: 20, h: 10 };
+    const I = inerciaSeccionFlexion(rect);
+    const M = 0.5 * (250 * I) / 5;
+    const dist = distribucionEsfuerzoFlexion(a36, rect, M, M);
+    expect(dist[0].sigma).toBeCloseTo((M * 5) / I, 0); // y = −c: tracción
+    expect(dist[dist.length - 1].sigma).toBeCloseTo((-M * 5) / I, 0);
+  });
+
+  it('flexión: tras descargar una viga plastificada quedan esfuerzos residuales con momento resultante nulo', () => {
+    const rect = { tipo: 'rectangular' as const, b: 20, h: 10 };
+    const Mmax = momentoDesdeCurvatura(a36, rect, 0.01 / 5)!;
+    const dist = distribucionEsfuerzoFlexion(a36, rect, 0, Mmax, 401);
+    const dy = dist[1].y - dist[0].y;
+    const Mres = dist.reduce((acc, p) => acc - p.sigma * p.y * 20 * dy, 0);
+    expect(Math.abs(Mres) / Mmax).toBeLessThan(0.01);
+    expect(Math.max(...dist.map((p) => Math.abs(p.sigma)))).toBeGreaterThan(50);
+  });
+
+  it('torsión: los residuales tras descargar dan par nulo y τ(r) es lineal en régimen elástico', () => {
+    const G = moduloCorte(a36)!;
+    const elastica = distribucionCortante(a36, G, 10, 0, 100, 0.002, 0.002);
+    expect(elastica[elastica.length - 1].tau).toBeCloseTo((G * 5 * 0.002) / 100, 3);
+    const thetaMax = 0.2;
+    const Tmax = parTorsor(a36, G, 10, 0, 100, thetaMax)!;
+    const J = momentoPolarInerciaCircular(10);
+    const thetaCero = thetaMax - (Tmax * 100) / (G * J);
+    const residual = distribucionCortante(a36, G, 10, 0, 100, thetaCero, thetaMax, 801).filter((p) => p.r >= 0);
+    const dr = residual[1].r - residual[0].r;
+    const Tres = residual.reduce((acc, p) => acc + p.tau * 2 * Math.PI * p.r * p.r * dr, 0);
+    expect(Math.abs(Tres) / Tmax).toBeLessThan(0.01);
+  });
+});
+
+describe('Pandeo: Johnson y Euler', () => {
+  it('Johnson parte de σY en λ = 0 y empalma con Euler en λt (σ = σY/2)', () => {
+    const lt = esbeltezTransicionJohnson(200000, 250);
+    expect(esfuerzoCriticoJohnsonEuler(200000, 250, 0)).toBeCloseTo(250, 6);
+    expect(esfuerzoCriticoJohnsonEuler(200000, 250, lt * (1 - 1e-9))).toBeCloseTo(125, 3);
+    expect(esfuerzoCriticoJohnsonEuler(200000, 250, lt * 1.5)).toBeCloseTo((Math.PI ** 2 * 200000) / (lt * 1.5) ** 2, 6);
   });
 });

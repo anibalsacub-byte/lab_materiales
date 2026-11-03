@@ -23,6 +23,15 @@ export interface OpcionesGrafico {
   energia: boolean;
   cuadricula: boolean;
   teorica: boolean;
+  /** Superponer las curvas de ensayos anteriores. */
+  comparar?: boolean;
+}
+
+/** Curva de un ensayo anterior, para compararla con el actual. */
+export interface CurvaComparada {
+  etiqueta: string;
+  color: string;
+  puntos: PuntoXY[];
 }
 
 interface Props {
@@ -43,8 +52,12 @@ interface Props {
   registrados?: PuntoXY[];
   opciones: OpcionesGrafico;
   decimalesX?: number;
-  /** Límite inferior del eje Y (por defecto 0; negativo para diagramas de cortante). */
+  /** Límites inferiores de los ejes (por defecto 0; negativos para diagramas y distribuciones de esfuerzo). */
   yMin?: number;
+  xMin?: number;
+  comparadas?: CurvaComparada[];
+  /** Nombre de la curva actual en la leyenda (solo se muestra si hay curvas comparadas). */
+  etiquetaActual?: string;
   unidadEnergia?: string;
 }
 
@@ -95,12 +108,13 @@ function formato(v: number, decimales: number) {
 export function GraficoEnsayo(props: Props) {
   const { id, titulo, subtitulo, xEtiqueta, yEtiqueta, xMax, yMax, traza, referencia, regiones, puntosClave, lineaOffset, energia, puntoActual, registrados, opciones, decimalesX } = props;
   const yMin = props.yMin ?? 0;
+  const xMin = props.xMin ?? 0;
   const anchoUtil = W - M.izq - M.der;
   const altoUtil = H - M.sup - M.inf;
-  const px = (x: number) => M.izq + (Math.min(Math.max(x, 0), xMax) / xMax) * anchoUtil;
+  const px = (x: number) => M.izq + ((Math.min(Math.max(x, xMin), xMax) - xMin) / (xMax - xMin)) * anchoUtil;
   const py = (y: number) => M.sup + altoUtil - ((Math.min(Math.max(y, yMin), yMax) - yMin) / (yMax - yMin)) * altoUtil;
 
-  const ticksX = marcas(xMax);
+  const ticksX = marcas(xMax, xMin);
   const ticksY = marcas(yMax, yMin);
   const decX = decimalesX ?? decimalesPaso((ticksX[1] ?? xMax) - (ticksX[0] ?? 0));
   const decY = decimalesPaso((ticksY[1] ?? yMax) - (ticksY[0] ?? 0));
@@ -145,6 +159,7 @@ export function GraficoEnsayo(props: Props) {
       <rect x={M.izq} y={M.sup} width={anchoUtil} height={altoUtil} fill="none" stroke={C.marco} />
       <line x1={M.izq} y1={M.sup + altoUtil} x2={M.izq + anchoUtil} y2={M.sup + altoUtil} stroke={C.eje} strokeWidth={1.3} />
       <line x1={M.izq} y1={M.sup} x2={M.izq} y2={M.sup + altoUtil} stroke={C.eje} strokeWidth={1.3} />
+      {xMin < 0 && <line x1={px(0)} y1={M.sup} x2={px(0)} y2={M.sup + altoUtil} stroke={C.eje} strokeWidth={1} strokeDasharray="3 3" />}
       {yMin < 0 && <line x1={M.izq} y1={py(0)} x2={M.izq + anchoUtil} y2={py(0)} stroke={C.eje} strokeWidth={1} strokeDasharray="3 3" />}
       <text x={M.izq + anchoUtil / 2} y={H - 10} textAnchor="middle" fontSize="12" fill={C.texto} fontFamily={FUENTE_UI}>{xEtiqueta}</text>
       <text x={16} y={M.sup + altoUtil / 2} textAnchor="middle" fontSize="12" fill={C.texto} fontFamily={FUENTE_UI} transform={`rotate(-90, 16, ${M.sup + altoUtil / 2})`}>{yEtiqueta}</text>
@@ -168,6 +183,20 @@ export function GraficoEnsayo(props: Props) {
           {opciones.etiquetas && (
             <text x={px(lineaOffset.hasta.x) + 8} y={py(lineaOffset.hasta.y) + 16} fontSize="10.5" fill={C.offset} fontFamily={FUENTE}>{lineaOffset.etiqueta}</text>
           )}
+        </g>
+      )}
+
+      {/* Ensayos anteriores superpuestos, con leyenda */}
+      {opciones.comparar &&
+        props.comparadas?.map((cc, i) => cc.puntos.length > 1 && <path key={i} d={camino(cc.puntos)} fill="none" stroke={cc.color} strokeWidth={1.6} opacity={0.8} />)}
+      {opciones.comparar && props.comparadas && props.comparadas.length > 0 && (
+        <g>
+          {[{ etiqueta: props.etiquetaActual ?? "Ensayo actual", color: C.traza }, ...props.comparadas].map((cc, i) => (
+            <g key={i} transform={`translate(${M.izq + anchoUtil - 200}, ${M.sup + 30 + i * 15})`}>
+              <line x1={0} y1={0} x2={18} y2={0} stroke={cc.color} strokeWidth={2.4} />
+              <text x={24} y={3.5} fontSize="10" fill={C.texto} fontFamily={FUENTE_UI}>{cc.etiqueta}</text>
+            </g>
+          ))}
         </g>
       )}
 
