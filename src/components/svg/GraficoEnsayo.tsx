@@ -172,7 +172,18 @@ export function GraficoEnsayo(props: Props) {
           <g key={p.etiqueta}>
             <circle cx={px(p.x)} cy={py(p.y)} r={5} fill={C.fondo} stroke={p.color} strokeWidth={2} />
             {opciones.etiquetas && (
-              <text x={px(p.x) + 8} y={py(p.y) - 8} fontSize="10.5" fill={p.color} fontFamily={FUENTE} fontWeight="600">{p.etiqueta}</text>
+              // Cerca del borde derecho el rótulo va a la izquierda del punto para no salirse del gráfico.
+              <text
+                x={px(p.x) > W - M.der - p.etiqueta.length * 6.6 - 10 ? px(p.x) - 8 : px(p.x) + 8}
+                y={py(p.y) - 8}
+                textAnchor={px(p.x) > W - M.der - p.etiqueta.length * 6.6 - 10 ? 'end' : 'start'}
+                fontSize="10.5"
+                fill={p.color}
+                fontFamily={FUENTE}
+                fontWeight="600"
+              >
+                {p.etiqueta}
+              </text>
             )}
           </g>
         ))}
