@@ -82,6 +82,37 @@ export function esfuerzoEnDeformacion(material: Material, epsilon: number): numb
 }
 
 /**
+ * Inversa de {@link esfuerzoEnDeformacion}: deformación unitaria ε que produce un esfuerzo σ dado.
+ * Como el modelo es monótono creciente (sin ablandamiento ni estricción), la inversión es directa
+ * por tramos. Se usa para permitir un control del ensayo por fuerza aplicada (la variable que
+ * físicamente manipula el estudiante en una máquina de ensayos) en vez de por deformación.
+ *
+ * Devuelve undefined si |σ| excede la resistencia que el modelo puede alcanzar (la probeta ya
+ * habría fracturado o fluido sin límite) o si faltan datos del material.
+ */
+export function deformacionDesdeEsfuerzo(material: Material, sigma_MPa: number): number | undefined {
+  const { E_MPa, sigmaY_MPa, sigmaU_MPa, epsilonF } = material.propiedades;
+  if (E_MPa === undefined) return undefined;
+  const sigmaAbs = Math.abs(sigma_MPa);
+  const signo = sigma_MPa < 0 ? -1 : 1;
+
+  if (material.modelo === 'fragil_lineal' || material.modelo === 'elastico_lineal') {
+    const sigmaMax = epsilonF !== undefined ? E_MPa * epsilonF : undefined;
+    if (sigmaMax !== undefined && sigmaAbs > sigmaMax) return undefined;
+    return (signo * sigmaAbs) / E_MPa;
+  }
+
+  // elastico_plastico_bilineal
+  if (sigmaY_MPa === undefined) return (signo * sigmaAbs) / E_MPa;
+  if (sigmaAbs <= sigmaY_MPa) return (signo * sigmaAbs) / E_MPa;
+  const epsY = sigmaY_MPa / E_MPa;
+  if (sigmaU_MPa === undefined || epsilonF === undefined || epsilonF <= epsY) return undefined; // plateau sin límite: no invertible más allá de σY
+  if (sigmaAbs > sigmaU_MPa) return undefined;
+  const Ep = (sigmaU_MPa - sigmaY_MPa) / (epsilonF - epsY);
+  return signo * (epsY + (sigmaAbs - sigmaY_MPa) / Ep);
+}
+
+/**
  * Deformación permanente tras descargar completamente desde una deformación máxima alcanzada.
  * Si el material nunca superó la fluencia, la descarga es puramente elástica y no deja
  * deformación permanente.

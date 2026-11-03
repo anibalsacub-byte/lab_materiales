@@ -8,6 +8,7 @@ import { exportarMedicionesCSV, exportarSesionJSON } from '../../trial/exportar'
 import { obtenerMaterial } from '../../engine/materials';
 import {
   esfuerzoEnDeformacion,
+  deformacionDesdeEsfuerzo,
   deformacionFluencia,
   deformacionPermanenteTrasDescarga,
   deformacionTransversal,
@@ -20,7 +21,7 @@ import type { LecturaInstrumento } from '../../engine/types';
 const AMPLIFICACION_VISUAL = 25;
 
 type TipoSeccionLocal = 'circular' | 'rectangular';
-type ModoControl = 'epsilon' | 'mm';
+type ModoControl = 'fuerza' | 'epsilon' | 'mm';
 
 function limiteDeformacion(materialId: string): number {
   const m = obtenerMaterial(materialId);
@@ -62,7 +63,7 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
   const [indiceSeleccionado, setIndiceSeleccionado] = useState(0);
   const [probetasUsadas, setProbetasUsadas] = useState(1);
   const [pPredicho, setPPredicho] = useState(5000);
-  const [modoControl, setModoControl] = useState<ModoControl>('epsilon');
+  const [modoControl, setModoControl] = useState<ModoControl>('fuerza');
 
   const material = obtenerMaterial(sesion.materialId)!;
 
@@ -90,6 +91,8 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
 
   const sigmaMaxPosible = esfuerzoEnDeformacion(material, limiteEps) ?? material.propiedades.sigmaU_MPa ?? material.propiedades.sigmaY_MPa ?? (material.propiedades.E_MPa ?? 200000) * limiteEps;
   const celdaCarga = elegirCeldaCarga(sigmaMaxPosible * A);
+  const maxFuerza = sigmaMaxPosible * A;
+  const pasoFuerza = maxFuerza / 500;
 
   const estadoSvg: 'elastico' | 'plastico' | 'destruida' = sesion.probetaDestruida
     ? 'destruida'
@@ -107,6 +110,13 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
 
   function ajustarPaso(signo: 1 | -1) {
     manejarSlider(epsilonObjetivo + signo * pasoSlider);
+  }
+
+  /** Control por fuerza: convierte la fuerza objetivo a ε invirtiendo el modelo constitutivo. */
+  function manejarSliderFuerza(P: number) {
+    const sigmaObjetivo = P / A;
+    const eps = deformacionDesdeEsfuerzo(material, sigmaObjetivo);
+    manejarSlider(eps ?? limiteEps);
   }
 
   function manejarDescargar() {
@@ -237,30 +247,30 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
           <div className="campo">
             <div className="fila" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
               <label style={{ marginBottom: 0 }}>
-                {modoControl === 'epsilon'
-                  ? <>Deformación controlada ε = {epsilonObjetivo.toFixed(5)} (máx.: {limiteEps.toFixed(4)})</>
-                  : <>Acortamiento controlado ΔL = {acortamientoActual.toFixed(4)} mm (máx.: {maxMm.toFixed(4)} mm)</>}
+                {modoControl === 'fuerza' && <>Fuerza aplicada P = {PActual.toFixed(0)} N (máx.: {maxFuerza.toFixed(0)} N)</>}
+                {modoControl === 'epsilon' && <>Deformación controlada ε = {epsilonObjetivo.toFixed(5)} (máx.: {limiteEps.toFixed(4)})</>}
+                {modoControl === 'mm' && <>Acortamiento controlado ΔL = {acortamientoActual.toFixed(4)} mm (máx.: {maxMm.toFixed(4)} mm)</>}
               </label>
-              <div className="selector-modo" role="group" aria-label="Unidad de control">
-                <button
-                  className={modoControl === 'epsilon' ? 'primario' : ''}
-                  onClick={() => setModoControl('epsilon')}
-                  disabled={sesion.probetaDestruida}
-                >
-                  ε
-                </button>
-                <button
-                  className={modoControl === 'mm' ? 'primario' : ''}
-                  onClick={() => setModoControl('mm')}
-                  disabled={sesion.probetaDestruida}
-                >
-                  mm
-                </button>
+              <div className="selector-modo" role="group" aria-label="Variable de control">
+                <button className={modoControl === 'fuerza' ? 'primario' : ''} onClick={() => setModoControl('fuerza')} disabled={sesion.probetaDestruida}>N</button>
+                <button className={modoControl === 'epsilon' ? 'primario' : ''} onClick={() => setModoControl('epsilon')} disabled={sesion.probetaDestruida}>ε</button>
+                <button className={modoControl === 'mm' ? 'primario' : ''} onClick={() => setModoControl('mm')} disabled={sesion.probetaDestruida}>mm</button>
               </div>
             </div>
             <div className="control-paso">
-              <button className="boton-paso" onClick={() => ajustarPaso(-1)} disabled={sesion.probetaDestruida || epsilonObjetivo <= 0} aria-label="Disminuir deformación">−</button>
-              {modoControl === 'epsilon' ? (
+              <button className="boton-paso" onClick={() => ajustarPaso(-1)} disabled={sesion.probetaDestruida || epsilonObjetivo <= 0} aria-label="Disminuir carga">−</button>
+              {modoControl === 'fuerza' && (
+                <input
+                  type="range"
+                  min={0}
+                  max={maxFuerza}
+                  step={pasoFuerza}
+                  value={PActual}
+                  onChange={(e) => manejarSliderFuerza(Number(e.target.value))}
+                  disabled={sesion.probetaDestruida}
+                />
+              )}
+              {modoControl === 'epsilon' && (
                 <input
                   type="range"
                   min={0}
@@ -270,7 +280,8 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
                   onChange={(e) => manejarSlider(Number(e.target.value))}
                   disabled={sesion.probetaDestruida}
                 />
-              ) : (
+              )}
+              {modoControl === 'mm' && (
                 <input
                   type="range"
                   min={0}
@@ -281,12 +292,17 @@ export function CompressionBench({ onVolver }: { onVolver: () => void }) {
                   disabled={sesion.probetaDestruida}
                 />
               )}
-              <button className="boton-paso" onClick={() => ajustarPaso(1)} disabled={sesion.probetaDestruida || epsilonObjetivo >= limiteEps} aria-label="Aumentar deformación">+</button>
+              <button className="boton-paso" onClick={() => ajustarPaso(1)} disabled={sesion.probetaDestruida || epsilonObjetivo >= limiteEps} aria-label="Aumentar carga">+</button>
             </div>
             <p className="nota">
-              {modoControl === 'epsilon'
-                ? <>Cada clic en − / + aplica un paso fino de Δε = {pasoSlider.toFixed(6)}.</>
-                : <>Cada clic en − / + aplica un paso fino de ΔL = {pasoSliderMm.toFixed(5)} mm (equivale a Δε = {pasoSlider.toFixed(6)}).</>}
+              {modoControl === 'fuerza' && <>Cada clic en − / + aplica un paso fino de Δε = {pasoSlider.toFixed(6)} (fuerza equivalente ≈ {pasoFuerza.toFixed(1)} N).</>}
+              {modoControl === 'epsilon' && <>Cada clic en − / + aplica un paso fino de Δε = {pasoSlider.toFixed(6)}.</>}
+              {modoControl === 'mm' && <>Cada clic en − / + aplica un paso fino de ΔL = {pasoSliderMm.toFixed(5)} mm (equivale a Δε = {pasoSlider.toFixed(6)}).</>}
+            </p>
+            <p className="nota">
+              En una máquina de ensayos real, el actuador controla el desplazamiento (ε o mm): es más estable, sobre todo
+              pasada la fluencia. El control por fuerza aquí resuelve internamente la deformación correspondiente — como
+              el modelo no tiene ablandamiento, la conversión siempre es exacta.
             </p>
           </div>
 

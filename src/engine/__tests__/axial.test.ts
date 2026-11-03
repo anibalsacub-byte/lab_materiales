@@ -5,6 +5,7 @@ import {
   alargamientoElastico,
   deformacionTransversal,
   esfuerzoEnDeformacion,
+  deformacionDesdeEsfuerzo,
   deformacionPermanenteTrasDescarga,
 } from '../mechanics/axial';
 import { obtenerMaterial } from '../materials';
@@ -79,5 +80,43 @@ describe('Modelo constitutivo por material', () => {
     const permanente = deformacionPermanenteTrasDescarga(a36, epsY * 3);
     expect(permanente).toBeGreaterThan(0);
     expect(permanente).toBeLessThan(epsY * 3);
+  });
+});
+
+describe('deformacionDesdeEsfuerzo — inversa del modelo constitutivo (control por fuerza)', () => {
+  it('es exactamente invertible en el régimen elástico', () => {
+    const a36 = obtenerMaterial('astm-a36')!;
+    const eps = deformacionDesdeEsfuerzo(a36, 80)!;
+    expect(eps).toBeCloseTo(80 / 200000, 9);
+    expect(esfuerzoEnDeformacion(a36, eps)).toBeCloseTo(80, 6);
+  });
+
+  it('es invertible en el régimen plástico (bilineal)', () => {
+    const a36 = obtenerMaterial('astm-a36')!;
+    const sigmaObjetivo = 320; // entre σY=250 y σU=400
+    const eps = deformacionDesdeEsfuerzo(a36, sigmaObjetivo)!;
+    expect(esfuerzoEnDeformacion(a36, eps)).toBeCloseTo(sigmaObjetivo, 6);
+  });
+
+  it('es invertible para un material frágil', () => {
+    const fundicion = obtenerMaterial('fundicion-gris-clase30')!;
+    const eps = deformacionDesdeEsfuerzo(fundicion, 150)!;
+    expect(esfuerzoEnDeformacion(fundicion, eps)).toBeCloseTo(150, 6);
+  });
+
+  it('devuelve undefined más allá de la resistencia que el modelo puede alcanzar', () => {
+    const a36 = obtenerMaterial('astm-a36')!;
+    expect(deformacionDesdeEsfuerzo(a36, 1000)).toBeUndefined(); // > σU
+    const fundicion = obtenerMaterial('fundicion-gris-clase30')!;
+    expect(deformacionDesdeEsfuerzo(fundicion, 700)).toBeUndefined(); // > E·εF del modelo frágil
+  });
+
+  it('ida y vuelta: σ → ε → σ coincide para una malla de esfuerzos', () => {
+    const a36 = obtenerMaterial('astm-a36')!;
+    for (const sigma of [10, 100, 249, 260, 350, 399]) {
+      const eps = deformacionDesdeEsfuerzo(a36, sigma);
+      expect(eps).toBeDefined();
+      expect(esfuerzoEnDeformacion(a36, eps!)).toBeCloseTo(sigma, 4);
+    }
   });
 });
