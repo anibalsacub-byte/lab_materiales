@@ -43,6 +43,9 @@ interface Props {
   registrados?: PuntoXY[];
   opciones: OpcionesGrafico;
   decimalesX?: number;
+  /** Límite inferior del eje Y (por defecto 0; negativo para diagramas de cortante). */
+  yMin?: number;
+  unidadEnergia?: string;
 }
 
 // Colores literales (no variables CSS) para que el SVG se pueda exportar como PNG tal cual.
@@ -67,16 +70,22 @@ const W = 660;
 const H = 420;
 const M = { izq: 64, der: 18, sup: 52, inf: 50 };
 
-/** Pasos de escala "limpios" (1, 2, 2.5, 5 × 10ⁿ) para las marcas de los ejes. */
-function marcas(max: number, objetivo = 6): number[] {
-  if (max <= 0) return [0];
-  const bruto = max / objetivo;
+/** Pasos de escala "limpios" (1, 2, 2.5, 5 × 10ⁿ) para las marcas de los ejes, de min a max. */
+function marcas(max: number, min = 0, objetivo = 6): number[] {
+  if (max <= min) return [min];
+  const bruto = (max - min) / objetivo;
   const pot = 10 ** Math.floor(Math.log10(bruto));
   const n = bruto / pot;
   const paso = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * pot;
   const r: number[] = [];
-  for (let v = 0; v <= max + paso * 1e-9; v += paso) r.push(Number(v.toFixed(10)));
+  for (let v = Math.ceil(min / paso - 1e-9) * paso; v <= max + paso * 1e-9; v += paso) r.push(Number(v.toFixed(10)) || 0);
   return r;
+}
+
+/** Decimales necesarios para escribir las marcas de un eje con su paso. */
+function decimalesPaso(paso: number): number {
+  const exp = Math.floor(Math.log10(paso));
+  return Math.max(0, -exp + (paso / 10 ** exp === 2.5 ? 1 : 0));
 }
 
 function formato(v: number, decimales: number) {
@@ -85,15 +94,16 @@ function formato(v: number, decimales: number) {
 
 export function GraficoEnsayo(props: Props) {
   const { id, titulo, subtitulo, xEtiqueta, yEtiqueta, xMax, yMax, traza, referencia, regiones, puntosClave, lineaOffset, energia, puntoActual, registrados, opciones, decimalesX } = props;
+  const yMin = props.yMin ?? 0;
   const anchoUtil = W - M.izq - M.der;
   const altoUtil = H - M.sup - M.inf;
   const px = (x: number) => M.izq + (Math.min(Math.max(x, 0), xMax) / xMax) * anchoUtil;
-  const py = (y: number) => M.sup + altoUtil - (Math.min(Math.max(y, 0), yMax) / yMax) * altoUtil;
+  const py = (y: number) => M.sup + altoUtil - ((Math.min(Math.max(y, yMin), yMax) - yMin) / (yMax - yMin)) * altoUtil;
 
   const ticksX = marcas(xMax);
-  const ticksY = marcas(yMax);
-  const pasoX = ticksX[1] ?? xMax;
-  const decX = decimalesX ?? Math.max(0, -Math.floor(Math.log10(pasoX)) + (pasoX / 10 ** Math.floor(Math.log10(pasoX)) === 2.5 ? 1 : 0));
+  const ticksY = marcas(yMax, yMin);
+  const decX = decimalesX ?? decimalesPaso((ticksX[1] ?? xMax) - (ticksX[0] ?? 0));
+  const decY = decimalesPaso((ticksY[1] ?? yMax) - (ticksY[0] ?? 0));
 
   const camino = (pts: PuntoXY[]) => pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${px(p.x).toFixed(1)},${py(p.y).toFixed(1)}`).join(' ');
   const areaEnergia = traza.length > 1 ? `${camino(traza)} L${px(traza[traza.length - 1].x).toFixed(1)},${py(0).toFixed(1)} L${px(traza[0].x).toFixed(1)},${py(0).toFixed(1)} Z` : '';
@@ -129,12 +139,13 @@ export function GraficoEnsayo(props: Props) {
         <g key={`y${t}`}>
           {opciones.cuadricula && <line x1={M.izq} y1={py(t)} x2={M.izq + anchoUtil} y2={py(t)} stroke={C.rejilla} strokeWidth={1} />}
           <line x1={M.izq - 5} y1={py(t)} x2={M.izq} y2={py(t)} stroke={C.eje} />
-          <text x={M.izq - 8} y={py(t) + 3.5} textAnchor="end" fontSize="10.5" fill={C.texto} fontFamily={FUENTE}>{formato(t, 0)}</text>
+          <text x={M.izq - 8} y={py(t) + 3.5} textAnchor="end" fontSize="10.5" fill={C.texto} fontFamily={FUENTE}>{formato(t, decY)}</text>
         </g>
       ))}
       <rect x={M.izq} y={M.sup} width={anchoUtil} height={altoUtil} fill="none" stroke={C.marco} />
       <line x1={M.izq} y1={M.sup + altoUtil} x2={M.izq + anchoUtil} y2={M.sup + altoUtil} stroke={C.eje} strokeWidth={1.3} />
       <line x1={M.izq} y1={M.sup} x2={M.izq} y2={M.sup + altoUtil} stroke={C.eje} strokeWidth={1.3} />
+      {yMin < 0 && <line x1={M.izq} y1={py(0)} x2={M.izq + anchoUtil} y2={py(0)} stroke={C.eje} strokeWidth={1} strokeDasharray="3 3" />}
       <text x={M.izq + anchoUtil / 2} y={H - 10} textAnchor="middle" fontSize="12" fill={C.texto} fontFamily={FUENTE_UI}>{xEtiqueta}</text>
       <text x={16} y={M.sup + altoUtil / 2} textAnchor="middle" fontSize="12" fill={C.texto} fontFamily={FUENTE_UI} transform={`rotate(-90, 16, ${M.sup + altoUtil / 2})`}>{yEtiqueta}</text>
 
@@ -142,7 +153,7 @@ export function GraficoEnsayo(props: Props) {
       {opciones.energia && areaEnergia && <path d={areaEnergia} fill={C.energia} opacity={0.16} />}
       {opciones.energia && energia !== undefined && (
         <text x={M.izq + anchoUtil - 8} y={M.sup + altoUtil - 10} textAnchor="end" fontSize="11" fill={C.energia} fontFamily={FUENTE}>
-          Energía absorbida: {formato(energia, 2)} MJ/m³
+          Energía absorbida: {formato(energia, 2)} {props.unidadEnergia ?? 'MJ/m³'}
         </text>
       )}
 

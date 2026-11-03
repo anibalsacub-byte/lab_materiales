@@ -72,6 +72,7 @@ interface ControlesMovimientoProps {
   unidadJog: string;
   velocidadMin: number;
   velocidadMax: number;
+  pasoVelocidad?: number;
   pasosJog: string[];
   pasoJog: string;
   setPasoJog: (p: string) => void;
@@ -88,7 +89,7 @@ export function ControlesMovimiento(p: ControlesMovimientoProps) {
     <>
       <div className="fila-controles">
         {p.children}
-        <Stepper etiqueta={`Velocidad (${p.unidadVelocidad})`} valor={p.velocidad} onChange={p.setVelocidad} min={p.velocidadMin} max={p.velocidadMax} paso={p.velocidadMin < 1 ? 0.5 : 1} disabled={m.fracturada} />
+        <Stepper etiqueta={`Velocidad (${p.unidadVelocidad})`} valor={p.velocidad} onChange={p.setVelocidad} min={p.velocidadMin} max={p.velocidadMax} paso={p.pasoVelocidad ?? (p.velocidadMin < 1 ? 0.5 : 1)} decimales={p.velocidadMin < 1 ? 1 : 0} disabled={m.fracturada} />
         <Segmentado<FactorTiempo>
           etiqueta="Tiempo"
           opciones={[{ valor: '1', etiqueta: '×1' }, { valor: '10', etiqueta: '×10' }, { valor: '50', etiqueta: '×50' }]}

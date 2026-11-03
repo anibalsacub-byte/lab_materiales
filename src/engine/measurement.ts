@@ -185,6 +185,18 @@ export const INSTRUMENTOS: Record<string, EspecificacionInstrumento> = {
     errorCeroMax_pct: 0.2,
     incertidumbre_pct: 1.0,
   },
+  encoderAngular: {
+    id: 'encoder-angular',
+    nombre: 'Encoder angular del cabezal (±10 vueltas)',
+    magnitud: 'ángulo de giro',
+    unidad: '°',
+    rango: [-3600, 3600],
+    resolucion: 0.01,
+    errorCeroMax_pct: 0.002,
+    incertidumbre_pct: 0.1,
+    // Encoder óptico: ±0,01° o 0,1 % de la lectura, lo que sea mayor.
+    umbralIncertidumbre: 10,
+  },
   indicadorAngular180: {
     id: 'indicador-angular-180',
     nombre: 'Indicador angular (±180°)',
