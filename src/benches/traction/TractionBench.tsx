@@ -68,10 +68,12 @@ interface EstadoSimulacion {
   verdaderos: PuntoVerdadero[];
   ultimoT: number;
   ultimoSigma: number;
+  /** Esfuerzo máximo alcanzado (lo retiene el indicador de pico de la consola). */
+  sigmaPico: number;
 }
 
 function simulacionInicial(): EstadoSimulacion {
-  return { eps: 0, epsMax: 0, t: 0, traza: [{ epsilon: 0, sigma_MPa: 0, envolvente: true }], verdaderos: [], ultimoT: -Infinity, ultimoSigma: 0 };
+  return { eps: 0, epsMax: 0, t: 0, traza: [{ epsilon: 0, sigma_MPa: 0, envolvente: true }], verdaderos: [], ultimoT: -Infinity, ultimoSigma: 0, sigmaPico: 0 };
 }
 
 function fmt(v: number, decimales: number): string {
@@ -176,6 +178,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
     const s = sim.current;
     const ultimo = s.traza[s.traza.length - 1];
     const envolvente = s.eps >= s.epsMax - 1e-12;
+    s.sigmaPico = Math.max(s.sigmaPico, sigma);
     if (Math.abs(s.eps - ultimo.epsilon) > epsF / 800 || Math.abs(sigma - ultimo.sigma_MPa) > 0.004 * sigmaU || envolvente !== ultimo.envolvente) {
       s.traza.push({ epsilon: s.eps, sigma_MPa: sigma, envolvente });
     }
@@ -186,6 +189,7 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
     s.eps = epsF;
     s.epsMax = epsF;
     const sigmaRotura = esfuerzoEnDeformacion(material, epsF) ?? 0;
+    s.sigmaPico = Math.max(s.sigmaPico, sigmaRotura);
     s.traza.push({ epsilon: epsF, sigma_MPa: sigmaRotura, envolvente: true }, { epsilon: epsF, sigma_MPa: 0, envolvente: true });
     // La máquina registra el último punto con carga antes de detectar la caída de fuerza.
     const tiempo: LecturaInstrumento = { valor: Number(s.t.toFixed(2)), unidad: 's', incertidumbre: 0, fueraDeRango: false, advertencias: [] };
@@ -313,6 +317,8 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
   const ext = lecturaVivo?.alargamiento.valor;
   const displayCarga = F === null || F === undefined ? (montada ? 'OVL' : '—') : fmt(F / 1000, 2);
   const displayExt = ext === null || ext === undefined ? (montada ? 'OVL' : '—') : fmt(ext, 3);
+  const pico = montada ? medir(s.sigmaPico * A, celda, { semillaEnsayo: sesion.semilla, indicePunto: 99999, calibrado: tarado }).valor : undefined;
+  const displayPico = pico === null ? 'OVL' : pico === undefined ? '—' : fmt(pico / 1000, 2);
 
   const k = Math.min(25, 0.6 / epsF);
   const colorProbeta = COLORES_PROBETA[material.categoria];
@@ -419,7 +425,8 @@ export function TractionBench({ onVolver }: { onVolver: () => void }) {
             enMarcha={enMovimiento}
             seccion={tipoSeccion}
             displayCarga={displayCarga}
-            displayExtension={displayExt}
+            displayPico={displayPico}
+            cotaL={`L = ${fmt(L * (1 + s.eps), 2)} mm`}
             cotaLo={`Lo = ${fmt(L, 1)} mm`}
             cotaSeccion={tipoSeccion === 'circular' ? `Ø ${fmt(d, 1)}` : `${fmt(b, 1)} × ${fmt(h, 1)}`}
             colorProbeta={colorProbeta}

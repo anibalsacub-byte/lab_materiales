@@ -10,8 +10,13 @@ interface Props {
   mordazasCerradas: boolean;
   enMarcha: boolean;
   seccion: 'circular' | 'rectangular';
+  /** Carga instantánea (kN). */
   displayCarga: string;
-  displayExtension: string;
+  /** Carga máxima alcanzada en el ensayo (kN), retenida como en un indicador real. */
+  displayPico: string;
+  /** Longitud actual entre marcas de calibración (cambia durante el ensayo). */
+  cotaL: string;
+  /** Longitud calibrada inicial Lo. */
   cotaLo: string;
   cotaSeccion?: string;
   colorProbeta: { claro: string; medio: string; oscuro: string };
@@ -227,20 +232,25 @@ export function MaquinaUniversalSVG(p: Props) {
         <line x1={XC - 63} y1={marcaSup} x2={XC - 53} y2={marcaSup} />
         <line x1={XC - 63} y1={marcaInf} x2={XC - 53} y2={marcaInf} />
       </g>
-      {/* Rótulo sobre un fondo propio para que la columna roscada no lo tape */}
-      <rect x={XC - 146} y={(marcaSup + marcaInf) / 2 - 10} width={84} height={p.cotaSeccion ? 36 : 20} rx={4} fill="#0c1620" opacity={0.88} stroke="#22344a" />
-      <text x={XC - 66} y={(marcaSup + marcaInf) / 2 + 4} textAnchor="end" fontSize="11" fill="#a9bdd1" fontStyle="italic">{p.cotaLo}</text>
+      {/* Rótulo sobre un fondo propio para que la columna roscada no lo tape: longitud actual entre
+          marcas (cambia durante el ensayo), longitud inicial Lo y sección */}
+      <rect x={XC - 150} y={(marcaSup + marcaInf) / 2 - 22} width={88} height={p.cotaSeccion ? 50 : 36} rx={4} fill="#0c1620" opacity={0.9} stroke="#22344a" />
+      <text x={XC - 66} y={(marcaSup + marcaInf) / 2 - 8} textAnchor="end" fontSize="11.5" fill="#e3edf7" fontWeight="600" fontStyle="italic">{p.cotaL}</text>
+      <text x={XC - 66} y={(marcaSup + marcaInf) / 2 + 7} textAnchor="end" fontSize="10" fill="#a9bdd1" fontStyle="italic">{p.cotaLo}</text>
       {p.cotaSeccion && (
-        <text x={XC - 66} y={(marcaSup + marcaInf) / 2 + 20} textAnchor="end" fontSize="10.5" fill="#7f97b0">{p.cotaSeccion}</text>
+        <text x={XC - 66} y={(marcaSup + marcaInf) / 2 + 21} textAnchor="end" fontSize="10" fill="#7f97b0">{p.cotaSeccion}</text>
       )}
 
       {/* Gabinete con consola */}
       <rect x={96} y={MESA_Y + 18} width={328} height={118} rx={6} fill="url(#umGabinete)" stroke="#0f2236" />
       <rect x={114} y={MESA_Y + 30} width={150} height={78} rx={5} fill="#05090d" stroke="#2b3f52" />
+      {/* Indicador de carga: valor instantáneo y pico retenido (carga máxima del ensayo) */}
       <text x={124} y={MESA_Y + 46} fontSize="8" fill="#5f7a92">CARGA</text>
-      <text x={254} y={MESA_Y + 64} textAnchor="end" fontSize="20" fill="#59f0b0" fontFamily="'IBM Plex Mono', monospace">{p.displayCarga}</text>
-      <text x={124} y={MESA_Y + 80} fontSize="8" fill="#5f7a92">EXTENSIÓN</text>
-      <text x={254} y={MESA_Y + 99} textAnchor="end" fontSize="16" fill="#59f0b0" fontFamily="'IBM Plex Mono', monospace">{p.displayExtension}</text>
+      <text x={236} y={MESA_Y + 66} textAnchor="end" fontSize="21" fill="#59f0b0" fontFamily="'IBM Plex Mono', monospace">{p.displayCarga}</text>
+      <text x={241} y={MESA_Y + 66} fontSize="9" fill="#59f0b0">kN</text>
+      <text x={124} y={MESA_Y + 82} fontSize="8" fill="#5f7a92">PICO</text>
+      <text x={236} y={MESA_Y + 99} textAnchor="end" fontSize="15" fill="#f0b429" fontFamily="'IBM Plex Mono', monospace">{p.displayPico}</text>
+      <text x={241} y={MESA_Y + 99} fontSize="9" fill="#f0b429">kN</text>
       <rect x={278} y={MESA_Y + 34} width={86} height={34} rx={3} fill="#dfe6ec" stroke="#8a99a8" />
       <text x={321} y={MESA_Y + 48} textAnchor="middle" fontSize="7.5" fill="#1d2a38" fontWeight="bold">MÁQUINA UNIVERSAL</text>
       <text x={321} y={MESA_Y + 59} textAnchor="middle" fontSize="7.5" fill="#1d2a38" fontWeight="bold">DE ENSAYOS</text>
