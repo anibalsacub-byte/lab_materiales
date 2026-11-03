@@ -144,3 +144,108 @@ export function deflexionConImperfeccion(P_N: number, Pcr_N: number, delta0_mm: 
   }
   return delta0_mm / (1 - P_N / Pcr_N);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Ensayo de pandeo con control por desplazamiento (máquina universal).
+// ---------------------------------------------------------------------------------------------
+
+export interface ColumnaEnsayo {
+  E: number;
+  A: number;
+  /** Momento de inercia mínimo (eje de pandeo). */
+  I: number;
+  L: number;
+  K: number;
+  /** Imperfección inicial (flecha lateral sin carga), mm. */
+  delta0: number;
+  /** Distancia del eje neutro a la fibra extrema en el plano de pandeo. */
+  c: number;
+  /** Esfuerzo límite de la fibra más comprimida: σY si el material fluye, σU si es frágil. */
+  sigmaLimite?: number;
+  ductil: boolean;
+}
+
+export interface HitoColumna {
+  /** Desplazamiento del travesaño, carga y flecha lateral en la primera fluencia (o rotura frágil). */
+  u: number;
+  P: number;
+  delta: number;
+}
+
+function cinematica(col: ColumnaEnsayo, P: number, delta: number): number {
+  // Acortamiento = compresión axial + acortamiento geométrico por la flexión (forma senoidal de media onda en Le).
+  const Le = col.K * col.L;
+  return (P * col.L) / (col.E * col.A) + (Math.PI ** 2 * (delta ** 2 - col.delta0 ** 2)) / (4 * Le);
+}
+
+function flechaElastica(col: ColumnaEnsayo, P: number, Pcr: number): number {
+  return col.delta0 / (1 - P / Pcr);
+}
+
+const sigmaMaxColumna = (col: ColumnaEnsayo, P: number, delta: number) => P / col.A + (P * delta * col.c) / col.I;
+
+/**
+ * Primera fluencia (dúctil) o rotura (frágil) de la fibra más comprimida, donde P/A + P·δ·c/I
+ * alcanza el esfuerzo límite. undefined si no hay esfuerzo límite conocido.
+ */
+export function hitoColumna(col: ColumnaEnsayo): HitoColumna | undefined {
+  if (col.sigmaLimite === undefined) return undefined;
+  const Pcr = cargaCriticaEuler(col.E, col.I, col.L, col.K);
+  const s = col.sigmaLimite;
+  if (col.delta0 <= 0) {
+    // Columna perfecta: recta hasta Pcr (o hasta aplastarse si σ = P/A llega antes al límite).
+    if (s * col.A <= Pcr) return { P: s * col.A, delta: 0, u: (s * col.A * col.L) / (col.E * col.A) };
+    const delta = ((s - Pcr / col.A) * col.I) / (Pcr * col.c);
+    return { P: Pcr, delta, u: cinematica(col, Pcr, delta) };
+  }
+  let lo = 0;
+  let hi = Pcr * (1 - 1e-12);
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    if (sigmaMaxColumna(col, mid, flechaElastica(col, mid, Pcr)) < s) lo = mid;
+    else hi = mid;
+  }
+  const delta = flechaElastica(col, lo, Pcr);
+  return { P: lo, delta, u: cinematica(col, lo, delta) };
+}
+
+/**
+ * Carga y flecha lateral para un desplazamiento del travesaño u (envolvente monótona):
+ * - Hasta la primera fluencia: elástico, δ = δ₀/(1 − P/Pcr) (amplificación de la imperfección).
+ *   Si δ₀ = 0 la columna sigue recta hasta Pcr y luego se flexiona a carga constante (bifurcación).
+ * - Después (dúctil): se forma una rótula plástica en el centro; con el momento P·δ casi constante,
+ *   la carga cae como P = P_y·δ_y/δ (mecanismo rígido-plástico). La flecha sigue de la cinemática.
+ */
+export function estadoColumna(col: ColumnaEnsayo, u: number, hito = hitoColumna(col)): { P: number; delta: number } {
+  const Pcr = cargaCriticaEuler(col.E, col.I, col.L, col.K);
+  const Le = col.K * col.L;
+  if (u <= 0) return { P: 0, delta: col.delta0 };
+  if (hito && u > hito.u && col.ductil) {
+    if (hito.delta < 1e-9) return { P: hito.P, delta: 0 };
+    const delta = Math.sqrt(hito.delta ** 2 + (4 * Le * (u - hito.u)) / Math.PI ** 2);
+    return { P: (hito.P * hito.delta) / delta, delta };
+  }
+  if (col.delta0 <= 0) {
+    const P = Math.min((col.E * col.A * u) / col.L, Pcr);
+    if (P < Pcr) return { P, delta: 0 };
+    return { P: Pcr, delta: Math.sqrt(Math.max((4 * Le * (u - (Pcr * col.L) / (col.E * col.A))) / Math.PI ** 2, 0)) };
+  }
+  let lo = 0;
+  let hi = Pcr * (1 - 1e-12);
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2;
+    if (cinematica(col, mid, flechaElastica(col, mid, Pcr)) < u) lo = mid;
+    else hi = mid;
+  }
+  return { P: lo, delta: flechaElastica(col, lo, Pcr) };
+}
+
+/** Desplazamiento del travesaño al que la flecha lateral alcanza un valor dado (para el fin de recorrido). */
+export function desplazamientoParaFlecha(col: ColumnaEnsayo, delta: number, hito = hitoColumna(col)): number {
+  const Le = col.K * col.L;
+  if (hito && col.ductil && delta > hito.delta) return hito.u + (Math.PI ** 2 * (delta ** 2 - hito.delta ** 2)) / (4 * Le);
+  const Pcr = cargaCriticaEuler(col.E, col.I, col.L, col.K);
+  if (col.delta0 <= 0) return (Pcr * col.L) / (col.E * col.A) + (Math.PI ** 2 * delta ** 2) / (4 * Le);
+  const P = Math.max(Pcr * (1 - col.delta0 / Math.max(delta, col.delta0 * 1.000001)), 0);
+  return cinematica(col, P, delta);
+}

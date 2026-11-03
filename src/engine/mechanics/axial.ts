@@ -315,3 +315,68 @@ export function generarCurvaEsfuerzoDeformacion(material: Material, numPuntos = 
   }
   return puntos;
 }
+
+/**
+ * Curva σ(ε) sin estricción, para estados en los que la sección no puede adelgazarse localmente
+ * (fibras de una viga en flexión, un eje en torsión): sigue la de tracción hasta (εUTS, σU) y desde
+ * ahí se mantiene en σU hasta εF. En los frágiles coincide con la curva de tracción.
+ */
+export function esfuerzoSinEstriccion(material: Material, epsilon: number): number | undefined {
+  const p = material.modelo === 'elastico_plastico_bilineal' ? parametrosCurvaBilineal(material) : undefined;
+  const epsAbs = Math.abs(epsilon);
+  if (p && epsAbs > p.epsUTS) return epsAbs <= p.epsF ? Math.sign(epsilon) * p.sigmaU : undefined;
+  return esfuerzoEnDeformacion(material, epsilon);
+}
+
+/**
+ * Acortamiento unitario a la rotura en compresión. Solo los frágiles rompen (por cortante, en un
+ * plano inclinado); los dúctiles se aplastan sin romper. Se conserva la forma de la curva de
+ * tracción (mismo exponente n = E·εF/σU) escalada a la resistencia a compresión σUc; si no hay
+ * dato de σUc se usa σU (conservador).
+ */
+export function deformacionRoturaCompresion(material: Material): number | undefined {
+  if (material.modelo === 'elastico_plastico_bilineal') return undefined;
+  const { E_MPa, sigmaU_MPa, epsilonF, sigmaUc_MPa } = material.propiedades;
+  if (E_MPa === undefined || sigmaU_MPa === undefined) return epsilonF;
+  const nTraccion = epsilonF !== undefined ? Math.max((E_MPa * epsilonF) / sigmaU_MPa, 1) : 1;
+  return (nTraccion * (sigmaUc_MPa ?? sigmaU_MPa)) / E_MPa;
+}
+
+/**
+ * Esfuerzo ingenieril de compresión (positivo) para un acortamiento unitario ε (positivo).
+ * - Dúctiles: no hay estricción; la sección crece al acortarse (A = A₀/(1 − ε), volumen
+ *   constante), así que la carga sigue subiendo: σ_ing = σ_real/(1 − ε). La curva real se toma
+ *   de la de tracción hasta εUTS (σ_real = σ·(1 + ε), a igual deformación real) y se prolonga con
+ *   la ley de Hollomon σ = K·εⁿ ajustada en ese punto (n = ε_real en σU, criterio de Considère).
+ *   Se desprecia el rozamiento con los platos (abarrilamiento solo visual).
+ * - Frágiles: curva cóncava hasta la rotura en (εRc, σUc), como en tracción.
+ */
+export function esfuerzoCompresion(material: Material, epsilon: number): number | undefined {
+  const E = material.propiedades.E_MPa;
+  if (E === undefined || epsilon < 0) return undefined;
+  if (material.modelo !== 'elastico_plastico_bilineal') {
+    const epsRotura = deformacionRoturaCompresion(material);
+    if (epsRotura !== undefined && epsilon > epsRotura) return undefined;
+    const { sigmaU_MPa, sigmaUc_MPa } = material.propiedades;
+    if (material.modelo === 'fragil_lineal' && sigmaU_MPa !== undefined && epsRotura !== undefined) {
+      const sigmaUc = sigmaUc_MPa ?? sigmaU_MPa;
+      const n = (E * epsRotura) / sigmaUc;
+      if (n > 1) return sigmaUc * (1 - (1 - epsilon / epsRotura) ** n);
+    }
+    return E * epsilon;
+  }
+  const p = parametrosCurvaBilineal(material);
+  if (!p) return esfuerzoEnDeformacion(material, epsilon);
+  if (epsilon >= 0.95) return undefined;
+  const epsReal = -Math.log(1 - epsilon);
+  const epsTraccionEquivalente = Math.exp(epsReal) - 1;
+  let sigmaReal: number;
+  if (epsTraccionEquivalente <= p.epsUTS) {
+    sigmaReal = esfuerzoEnDeformacion(material, epsTraccionEquivalente)! * (1 + epsTraccionEquivalente);
+  } else {
+    const n = Math.log(1 + p.epsUTS);
+    const K = (p.sigmaU * (1 + p.epsUTS)) / n ** n;
+    sigmaReal = K * epsReal ** n;
+  }
+  return sigmaReal / (1 - epsilon);
+}

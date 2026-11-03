@@ -27,6 +27,8 @@ export interface PropiedadesMaterial {
   sigmaY_MPa?: number; // límite de fluencia (ingenieril)
   sigmaU_MPa?: number; // resistencia última (ingenieril)
   epsilonF?: number; // deformación unitaria a la fractura (adimensional)
+  /** Resistencia a compresión de los materiales frágiles (los dúctiles no rompen en compresión: se aplastan). */
+  sigmaUc_MPa?: number;
   // Propiedades adicionales para materiales ortótropos (compuestos reforzados con fibra)
   E2_MPa?: number; // módulo transversal
   G12_MPa?: number; // módulo de corte en el plano 1-2

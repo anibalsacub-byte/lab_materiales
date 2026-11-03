@@ -14,6 +14,9 @@
  * Unidades: fuerzas en N, longitudes en mm, momentos en N·mm, carga distribuida en N/mm.
  */
 
+import { esfuerzoSinEstriccion } from './axial';
+import type { Material } from '../types';
+
 export type ApoyoViga = 'simple' | 'voladizo';
 export type TipoCargaViga = 'puntual' | 'distribuida';
 
@@ -163,4 +166,157 @@ export function deflexionMaxima(p: ParametrosViga, E_MPa: number, I_mm4: number)
 export function esfuerzoFlexion(M_Nmm: number, c_mm: number, I_mm4: number): number {
   if (I_mm4 <= 0) throw new Error('I debe ser positivo.');
   return (M_Nmm * c_mm) / I_mm4;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Ensayo de flexión en máquina universal (3 y 4 puntos), más allá del régimen elástico.
+// ---------------------------------------------------------------------------------------------
+
+
+export type SeccionFlexion = { tipo: 'rectangular'; b: number; h: number } | { tipo: 'circular'; d: number };
+/** Tres puntos: carga P en el centro. Cuatro puntos: dos cargas P/2 a L/3 de cada apoyo. */
+export type ConfiguracionFlexion = 'tres-puntos' | 'cuatro-puntos';
+
+export function semialturaSeccion(s: SeccionFlexion): number {
+  return s.tipo === 'rectangular' ? s.h / 2 : s.d / 2;
+}
+
+export function inerciaSeccionFlexion(s: SeccionFlexion): number {
+  return s.tipo === 'rectangular' ? (s.b * s.h ** 3) / 12 : (Math.PI * s.d ** 4) / 64;
+}
+
+function anchoEn(s: SeccionFlexion, y: number): number {
+  return s.tipo === 'rectangular' ? s.b : 2 * Math.sqrt(Math.max((s.d / 2) ** 2 - y ** 2, 0));
+}
+
+/**
+ * Momento flector que resiste la sección para una curvatura κ (1/mm): M = ∫ σ(κ·y)·y·dA, con la
+ * curva del material sin estricción y el mismo comportamiento a tracción y a compresión (válido
+ * para metales). Devuelve undefined si la fibra extrema supera la deformación de rotura.
+ */
+export function momentoDesdeCurvatura(material: Material, s: SeccionFlexion, kappa: number, nFranjas = 200): number | undefined {
+  const c = semialturaSeccion(s);
+  const dy = c / nFranjas;
+  let M = 0;
+  for (let i = 0; i < nFranjas; i++) {
+    const y = (i + 0.5) * dy;
+    const sigma = esfuerzoSinEstriccion(material, kappa * y);
+    if (sigma === undefined) return undefined;
+    M += sigma * y * anchoEn(s, y) * dy;
+  }
+  return 2 * M;
+}
+
+/** Momento máximo (en el centro) para una carga total P. */
+export function momentoCentral(P: number, L: number, config: ConfiguracionFlexion): number {
+  return config === 'tres-puntos' ? (P * L) / 4 : (P * L) / 6;
+}
+
+/** Rigidez elástica P/δ en el centro del claro: 48EI/L³ (3 puntos) o 1296EI/(23L³) (4 puntos, cargas a L/3). */
+export function rigidezFlexion(E: number, I: number, L: number, config: ConfiguracionFlexion): number {
+  return config === 'tres-puntos' ? (48 * E * I) / L ** 3 : (1296 * E * I) / (23 * L ** 3);
+}
+
+export interface CurvaCargaFlecha {
+  /** Flecha en el centro (mm) y carga total (N), crecientes. */
+  delta: number[];
+  P: number[];
+  /** Rotura de la fibra traccionada (deformación εF): último punto de la curva. */
+  deltaRotura: number;
+  PRotura: number;
+  /** Primera fluencia de la fibra extrema (solo materiales con σY). */
+  PFluencia?: number;
+  deltaFluencia?: number;
+  rigidez: number;
+}
+
+/**
+ * Curva carga–flecha de una viga simplemente apoyada en 3 o 4 puntos, con plasticidad: para cada
+ * carga, la curvatura de cada sección sale de invertir M(κ) y la flecha en el centro se integra
+ * por trabajos virtuales, δ = ∫ κ(x)·m(x) dx (m = momento de una carga unitaria en el centro).
+ * En régimen elástico reproduce PL³/(48EI) y 23PL³/(1296EI). Teoría de pequeñas deflexiones.
+ */
+export function curvaCargaFlecha(material: Material, s: SeccionFlexion, L: number, config: ConfiguracionFlexion, nPuntos = 160): CurvaCargaFlecha {
+  const E = material.propiedades.E_MPa ?? 200000;
+  const epsF = material.propiedades.epsilonF ?? (material.propiedades.sigmaU_MPa ?? E * 0.01) / E;
+  const c = semialturaSeccion(s);
+  const I = inerciaSeccionFlexion(s);
+
+  // Tabla M(κ), más densa cerca del origen (zona elástica y codo de fluencia).
+  const kappaLim = (epsF * 0.999) / c;
+  const nK = 320;
+  const kappas: number[] = [];
+  const momentos: number[] = [];
+  for (let i = 0; i <= nK; i++) {
+    const kappa = kappaLim * (i / nK) ** 2;
+    kappas.push(kappa);
+    momentos.push(momentoDesdeCurvatura(material, s, kappa) ?? momentos[momentos.length - 1]);
+  }
+  const Mlim = momentos[nK];
+  const kappaDeM = (M: number) => {
+    if (M <= 0) return 0;
+    let lo = 0;
+    let hi = nK;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (momentos[mid] < M) lo = mid;
+      else hi = mid;
+    }
+    const t = momentos[hi] > momentos[lo] ? (M - momentos[lo]) / (momentos[hi] - momentos[lo]) : 1;
+    return kappas[lo] + t * (kappas[hi] - kappas[lo]);
+  };
+
+  const PLim = config === 'tres-puntos' ? (4 * Mlim) / L : (6 * Mlim) / L;
+  const nX = 240;
+  const flecha = (P: number) => {
+    let delta = 0;
+    const dx = L / 2 / nX;
+    for (let i = 0; i < nX; i++) {
+      const x = (i + 0.5) * dx;
+      const M = config === 'tres-puntos' || x < L / 3 ? (P * x) / 2 : (P * L) / 6;
+      delta += kappaDeM(M) * (x / 2) * dx;
+    }
+    return 2 * delta;
+  };
+
+  const delta: number[] = [];
+  const P: number[] = [];
+  for (let j = 0; j <= nPuntos; j++) {
+    const Pj = PLim * (1 - (1 - j / nPuntos) ** 2);
+    P.push(Pj);
+    delta.push(flecha(Pj));
+  }
+
+  const rigidez = rigidezFlexion(E, I, L, config);
+  const sigmaY = material.propiedades.sigmaY_MPa;
+  let PFluencia: number | undefined;
+  if (material.modelo === 'elastico_plastico_bilineal' && sigmaY !== undefined) {
+    const My = (sigmaY * I) / c;
+    PFluencia = config === 'tres-puntos' ? (4 * My) / L : (6 * My) / L;
+  }
+  return {
+    delta,
+    P,
+    deltaRotura: delta[nPuntos],
+    PRotura: P[nPuntos],
+    PFluencia,
+    deltaFluencia: PFluencia !== undefined ? PFluencia / rigidez : undefined,
+    rigidez,
+  };
+}
+
+/** Interpola la carga de una curva carga–flecha en una flecha dada (envolvente monótona). */
+export function cargaEnFlecha(curva: CurvaCargaFlecha, delta: number): number {
+  const { delta: ds, P } = curva;
+  if (delta <= 0) return 0;
+  if (delta >= ds[ds.length - 1]) return P[P.length - 1];
+  let lo = 0;
+  let hi = ds.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (ds[mid] < delta) lo = mid;
+    else hi = mid;
+  }
+  const t = (delta - ds[lo]) / (ds[hi] - ds[lo] || 1);
+  return P[lo] + t * (P[hi] - P[lo]);
 }

@@ -160,10 +160,11 @@ export const MATERIALES: Material[] = [
     categoria: 'fundicion',
     condicion: 'colado',
     modelo: 'fragil_lineal',
-    propiedades: { densidad_kg_m3: 7200, E_MPa: 100000, nu: 0.26, sigmaU_MPa: 210, epsilonF: 0.006 },
+    // σUc: resistencia a compresión de la clase 30 (752 MPa ≈ 109 ksi; ASM Handbook vol. 1, propiedades de fundición gris).
+    propiedades: { densidad_kg_m3: 7200, E_MPa: 100000, nu: 0.26, sigmaU_MPa: 210, epsilonF: 0.006, sigmaUc_MPa: 752 },
     fuente: FUENTE_METALES,
     notas:
-      'Material frágil en tracción: no presenta límite de fluencia definido. Su resistencia a compresión es considerablemente mayor que a tracción (no modelada en el banco de tracción).',
+      'Material frágil en tracción: no presenta límite de fluencia definido. Su resistencia a compresión (≈ 752 MPa) es unas 3,6 veces la de tracción: por eso se usa en bancadas y bases de máquinas.',
   },
   {
     id: 'fundicion-nodular-60-40-18',
