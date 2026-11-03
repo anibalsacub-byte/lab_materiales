@@ -48,7 +48,7 @@ export interface ModeloEnsayo {
   escalaF: number;
   escalaX: number;
   /** Lecturas de los instrumentos para un estado verdadero, con su ruido reproducible. */
-  leer: (x: number, F: number, indicePunto: number, calibrado: boolean) => Record<string, LecturaInstrumento>;
+  leer: (x: number, F: number, indicePunto: number, calibrado: boolean, xMax: number) => Record<string, LecturaInstrumento>;
   /** Clave de la lectura que retiene el indicador de pico (la celda de carga o el torquímetro). */
   clavePico: string;
 }
@@ -108,7 +108,7 @@ export function useEnsayoMaquina(sesionEnsayo: ReturnType<typeof useSesionEnsayo
   const F = Fbruta < 1e-9 * modelo.escalaF ? 0 : Fbruta;
 
   function adquirir(manual: boolean, x = s.x, Fv = F) {
-    const lecturas = modelo.leer(x, Fv, s.verdaderos.length, tarado);
+    const lecturas = modelo.leer(x, Fv, s.verdaderos.length, tarado, s.xMax);
     s.picoLeido = Math.max(s.picoLeido, lecturas[modelo.clavePico]?.valor ?? 0);
     agregarMedicion({ tiempo: lecturaTiempo(s.t), ...lecturas });
     s.verdaderos.push({ x, F: Fv, t: s.t, manual });
@@ -252,7 +252,7 @@ export function useEnsayoMaquina(sesionEnsayo: ReturnType<typeof useSesionEnsayo
   };
 
   /** Lectura en vivo de los instrumentos (índice distinto del de la adquisición para un ruido independiente). */
-  const lecturaVivo = enMaquina ? modelo.leer(s.x, F, 100000 + Math.floor(s.t * 10), tarado) : null;
+  const lecturaVivo = enMaquina ? modelo.leer(s.x, F, 100000 + Math.floor(s.t * 10), tarado, s.xMax) : null;
   const cargaLeida = lecturaVivo?.[modelo.clavePico]?.valor;
   // Lo que muestra el display también cuenta para el pico (el máximo es idempotente: seguro en el render).
   if (typeof cargaLeida === 'number') s.picoLeido = Math.max(s.picoLeido, cargaLeida);

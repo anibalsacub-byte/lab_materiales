@@ -28,12 +28,12 @@ interface ItemCatalogo {
 }
 
 const BANCOS: ItemCatalogo[] = [
-  { vista: 'banco-traccion', nombre: 'Banco 1 — Tracción', descripcion: 'Ensayo de tracción hasta la fractura: módulo elástico, fluencia y resistencia última.', disponible: true },
-  { vista: 'banco-compresion', nombre: 'Banco 2 — Compresión', descripcion: 'Compresión axial, módulo elástico y Poisson.', disponible: true },
-  { vista: 'banco-flexion', nombre: 'Banco 3 — Flexión', descripcion: 'Vigas apoyadas o en voladizo: reacciones, diagramas V-M y deflexión.', disponible: true },
+  { vista: 'banco-traccion', nombre: 'Banco 1 — Tracción', descripcion: 'Máquina universal: curva σ–ε hasta la fractura, E, ν, fluencia, Rp0,2, σu y alargamiento.', disponible: true },
+  { vista: 'banco-compresion', nombre: 'Banco 2 — Compresión', descripcion: 'Platos de compresión: aplastamiento de dúctiles, rotura por cortante de frágiles, E y ν.', disponible: true },
+  { vista: 'banco-flexion', nombre: 'Banco 3 — Flexión', descripcion: 'Flexión en 3 y 4 puntos: curva carga–flecha con plasticidad, diagramas V(x) y M(x), E por flexión.', disponible: true },
   { vista: 'banco-cortante', nombre: 'Banco 4 — Cortante', descripcion: 'Cortante simple y doble. Próxima etapa.', disponible: false },
-  { vista: 'banco-torsion', nombre: 'Banco 5 — Torsión', descripcion: 'Torsión de ejes circulares: ángulo de giro y esfuerzo cortante.', disponible: true },
-  { vista: 'banco-pandeo', nombre: 'Banco 6 — Pandeo de columnas', descripcion: 'Carga crítica de Euler, esbeltez y factor de seguridad.', disponible: true },
+  { vista: 'banco-torsion', nombre: 'Banco 5 — Torsión', descripcion: 'Máquina de torsión: curva par–giro hasta la rotura, G, τ y plano de rotura dúctil o frágil.', disponible: true },
+  { vista: 'banco-pandeo', nombre: 'Banco 6 — Pandeo de columnas', descripcion: 'Columna en la máquina universal: imperfección, carga crítica de Euler, esbeltez y colapso.', disponible: true },
   { vista: 'banco-uniones', nombre: 'Banco 7 — Uniones mecánicas', descripcion: 'Pernos, pasadores y placas. Próxima etapa.', disponible: false },
   { vista: 'banco-presion', nombre: 'Banco 8 — Recipientes a presión', descripcion: 'Pared delgada, esfuerzos circunferencial y longitudinal. Próxima etapa.', disponible: false },
 ];

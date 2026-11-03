@@ -29,28 +29,37 @@ Implementado y funcional:
   estricción hasta la fractura (`axial.ts`, con inversa esfuerzo→deformación, válida solo en el
   tramo ascendente, para controlar el ensayo por fuerza); pandeo de Euler con las 4 condiciones
   de apoyo ideales y modelo de imperfección inicial (`buckling.ts`); transformación de esfuerzos y
-  círculo de Mohr (`mohr.ts`); torsión elástica de ejes circulares (`torsion.ts`); flexión de
-  vigas simplemente apoyadas o en voladizo, con carga puntual o distribuida — reacciones, V(x),
-  M(x) y deflexión con fórmulas cerradas (`bending.ts`); y recipientes a presión
+  círculo de Mohr (`mohr.ts`); torsión de ejes circulares, elástica y elastoplástica hasta la rotura (`torsion.ts`);
+  flexión de vigas con fórmulas cerradas y, para el ensayo, momento–curvatura y curva
+  carga–flecha en 3 y 4 puntos con plasticidad (`bending.ts`); compresión dúctil y frágil
+  (`axial.ts`); pandeo con control por desplazamiento (`buckling.ts`); y recipientes a presión
   (`pressureVessel.ts`) — este último, de momento, solo como motor de cálculo validado
   numéricamente; su banco interactivo (Banco 8) llega en una etapa posterior.
 - **Analizador de secciones** (`src/engine/sections.ts`): área, centroide, Ix, Iy, Ixy, radios de
   giro y ejes principales para secciones circulares, rectangulares (macizas y tubulares) y
   perfiles I, T y L (por el método de rectángulos compuestos).
-- **Banco 1 — Tracción** (nuevo diseño "laboratorio"): máquina universal de ensayos dibujada en
-  SVG (columnas, travesaño móvil con celda de carga, mordazas de cuña, extensómetro de pinza,
-  consola con display y parada de emergencia). El ensayo se controla como en una máquina real:
-  **desplazamiento del travesaño a velocidad constante** (mm/min), con aceleración de tiempo
-  ×1/×10/×50, pausa, descarga elástica, movimiento manual (jog) y detección de la rotura por
-  caída de carga. Adquisición automática de datos (1 punto/s o cada 2 % de cambio de carga),
-  curva σ–ε en vivo con regiones (elástica, fluencia, endurecimiento, estricción), puntos
-  característicos, línea del 0,2 % (Rp0,2), energía absorbida y curva teórica conmutables,
-  resumen del ensayo (Fmáx, σu, Rp0,2, A %, tenacidad) y exportación del gráfico a PNG.
-- **Banco 2 — Compresión**, **Banco 3 — Flexión**, **Banco 5 — Torsión** y **Banco 6 — Pandeo**
-  (diseño anterior, se migrarán a la misma plantilla): manipulación directa de la carga, SVG con
-  cotas de dibujo técnico, instrumentos en vivo con rango autoajustado, gráficos en tiempo real
-  (incluidos V(x)/M(x) en flexión), registro de puntos y comparación contra el modelo de
-  referencia, al estilo de los simuladores de [PhET](https://phet.colorado.edu/).
+- **Cinco bancos con el mismo diseño de laboratorio** (tema oscuro, máquina dibujada en SVG con
+  su consola de carga y pico, gráfico en vivo, mandos con íconos y datos adquiridos al lado). En
+  todos, el ensayo se controla como en una máquina real: **la variable de control avanza a
+  velocidad constante** y la carga es la respuesta de la probeta, con aceleración de tiempo
+  ×1/×10/×50, pausa, descarga elástica (la probeta queda montada), desmontaje solo sin carga,
+  nuevo montaje, movimiento manual (jog), tara de los instrumentos y detección de la rotura.
+  Adquisición automática (1 punto/s o cada 2 % de cambio de carga), «Calcule y compare» sobre
+  cualquier punto, resumen del ensayo y exportación a CSV, JSON y PNG del gráfico.
+  - **Banco 1 — Tracción**: mordazas de cuña, probeta tipo hueso de perro con estricción y fractura
+    copa-cono, extensómetro; curva σ–ε con regiones, σy, σu, Rp0,2 y energía.
+  - **Banco 2 — Compresión**: platos con asiento esférico; los dúctiles se abarrilan y la carga
+    sigue subiendo (se detiene al 50 % o a la capacidad de la máquina); los frágiles rompen por
+    cortante a σUc (fundición gris ≈ 752 MPa, 3,6 veces su resistencia a tracción).
+  - **Banco 3 — Flexión**: 3 y 4 puntos con rodillos y deflectómetro; curva carga–flecha con
+    plasticidad (primera fluencia Py, rótula plástica, rotura frágil de la fibra traccionada) y
+    diagramas V(x) y M(x) a la carga actual.
+  - **Banco 5 — Torsión**: máquina de torsión con disco graduado, generatrices que se vuelven
+    hélices, celda de par y encoder; curva par–giro elastoplástica, Ty y rotura transversal
+    (dúctil) o en hélice a 45° (frágil).
+  - **Banco 6 — Pandeo**: columna en la máquina universal con apoyos articulados (cuchilla) o
+    empotrados y comparador lateral; imperfección inicial, aproximación a Pcr, bifurcación de la
+    columna perfecta y colapso por rótula plástica; método de Southwell.
 - **Estación A — Propiedades geométricas** y **Estación B — Círculo de Mohr**: herramientas de
   análisis interactivas con representación gráfica.
 - **Exportación**: mediciones a CSV, sesión completa a JSON, informe imprimible (PDF vía
@@ -79,14 +88,17 @@ src/
     __tests__/                Pruebas de validación numérica (vitest) — ver más abajo
 
   trial/                    Gestión de la sesión de ensayo (independiente del banco concreto)
+    useEnsayoMaquina.ts       Motor común de los bancos: estados de la máquina, control por
+                               desplazamiento, adquisición, pico, descarga y desmontaje
     useSesionEnsayo.ts        Hook con el estado del ensayo (material, mediciones, cálculos del
                                estudiante); no impone una secuencia de pasos en la interfaz
     exportar.ts                 CSV / JSON / gráfico a PNG
 
   components/               Piezas de interfaz reutilizables entre bancos y estaciones
     lab/LabUI.tsx              Controles del diseño "laboratorio" (display, stepper, segmentado, pasos, chips)
-    svg/                       Piezas SVG reutilizables (MaquinaUniversalSVG, GraficoEnsayo, ComparadorDial, GraficoXY)
-  benches/                   Un banco de ensayo = <Nombre>Bench.tsx + <Nombre>SVG.tsx
+    lab/PanelesEnsayo.tsx      Paneles comunes de los bancos (mandos, tabla en vivo, exportación, estado)
+    svg/                       Piezas SVG reutilizables (MarcoMaquinaSVG, GraficoEnsayo)
+  benches/                   Un banco = <Nombre>Bench.tsx + su montaje o máquina en SVG
     traction/
     compression/
     bending/
@@ -110,7 +122,7 @@ Requiere Node.js 20+.
 ```bash
 npm install
 npm run dev        # http://localhost:5173 con recarga en caliente
-npm test            # 113 pruebas de validación numérica (vitest)
+npm test            # 128 pruebas de validación numérica (vitest)
 npm run build       # compila TypeScript y genera dist/ para producción
 npm run preview     # sirve dist/ localmente
 ```
