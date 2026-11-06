@@ -94,7 +94,7 @@ interface ControlesMovimientoProps {
   children?: ReactNode;
 }
 
-/** Configuración común a todas las máquinas: velocidad, aceleración de tiempo, movimiento manual y nueva probeta. */
+/** Configuración común a todas las máquinas: velocidad, aceleración de tiempo y movimiento manual («Nueva probeta» está en los mandos principales). */
 export function ControlesMovimiento(p: ControlesMovimientoProps) {
   const { m } = p;
   return (
@@ -123,12 +123,6 @@ export function ControlesMovimiento(p: ControlesMovimientoProps) {
           valor={p.pasoJog}
           onChange={p.setPasoJog}
         />
-        <div className="segmentado-grupo">
-          <span className="stepper-etiqueta">Probeta</span>
-          <button type="button" className="btn-peligro-suave" onClick={() => m.acciones.nuevaProbeta()}>
-            <Icono tipo="reiniciar" /> Nueva probeta
-          </button>
-        </div>
       </div>
     </>
   );

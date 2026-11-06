@@ -68,6 +68,7 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
   const I = inerciaSeccionFlexion(seccion);
   const c = semialturaSeccion(seccion);
   const alto = tipoSeccion === 'rectangular' ? h : d;
+  const areaSeccion = tipoSeccion === 'rectangular' ? b * h : (Math.PI * d ** 2) / 4;
 
   const curva = useMemo(() => curvaCargaFlecha(material, seccion, L, config), [material, seccion, L, config]);
   // Más allá de ~L/10 la teoría de pequeñas deflexiones deja de valer y la viga desliza sobre los apoyos.
@@ -167,6 +168,22 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
   };
   const MmaxGrafico = Math.max(momentoCentral(Pmax, L, config) / 1000, 1e-6) * 1.15;
   const VmaxGrafico = Math.max(Pmax / 2 / fP, 1e-6) * 1.2;
+  // Rótulos con el valor de V en el centro de cada tramo (en 4 puntos, el tramo central no tiene cortante).
+  const Vtramo = Pact / 2 / fP;
+  const textoV = (v: number) => `V = ${v > 0 ? '+' : v < 0 ? '−' : ''}${fmt(Math.abs(v), enN ? 1 : 3)} ${uP}`;
+  const rotulosCortante: PuntoClave[] =
+    Pact <= 0
+      ? []
+      : config === 'tres-puntos'
+        ? [
+            { x: L / 4, y: Vtramo, etiqueta: textoV(Vtramo), color: '#3ecf8e' },
+            { x: (3 * L) / 4, y: -Vtramo, etiqueta: textoV(-Vtramo), color: '#ff8a65' },
+          ]
+        : [
+            { x: L / 6, y: Vtramo, etiqueta: textoV(Vtramo), color: '#3ecf8e' },
+            { x: L / 2, y: 0, etiqueta: 'V = 0 (flexión pura)', color: '#f0b429' },
+            { x: (5 * L) / 6, y: -Vtramo, etiqueta: textoV(-Vtramo), color: '#ff8a65' },
+          ];
 
   const traza = s.traza.map((p) => ({ x: p.x, y: p.F / fP }));
   const referencia = [{ x: 0, y: 0 }, { x: Math.min((Pmax * 1.15) / k, xFinal * 1.08), y: Math.min(Pmax * 1.15, k * xFinal * 1.08) / fP }];
@@ -226,6 +243,17 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
       resultado: Mv !== undefined ? `${fmt((Mv * c) / I, 1)} MPa` : undefined,
       inactiva: fluye,
       nota: fluye ? 'La sección ya fluyó: la fórmula elástica sobrestima σ en la fibra (vea la pestaña «Esfuerzos σ(y)»).' : undefined,
+    },
+    {
+      // Cortante máximo, en el eje neutro: 1,5 veces el promedio V/A en la sección rectangular, 4/3 en la circular.
+      nombre: 'Esfuerzo cortante máximo (eje neutro)',
+      formula: tipoSeccion === 'rectangular' ? 'τmáx = 1,5·V / A,  V = P/2' : 'τmáx = 4·V / (3·A),  V = P/2',
+      sustitucion: Pv !== undefined ? `${tipoSeccion === 'rectangular' ? '1,5' : '4/3'} · ${fmt(Pv / 2, 1)} N / ${fmt(areaSeccion, 1)} mm²` : undefined,
+      resultado: Pv !== undefined ? `${fmt(((tipoSeccion === 'rectangular' ? 1.5 : 4 / 3) * (Pv / 2)) / areaSeccion, 2)} MPa` : undefined,
+      nota:
+        Pv !== undefined && Mv !== undefined && Mv > 0 && !fluye
+          ? `τmáx es ${fmt(((((tipoSeccion === 'rectangular' ? 1.5 : 4 / 3) * (Pv / 2)) / areaSeccion) / ((Mv * c) / I)) * 100, 1)} % de σ: en una viga esbelta el cortante es despreciable frente a la flexión.`
+          : undefined,
     },
     {
       nombre: 'Módulo de Young por flexión',
@@ -350,7 +378,8 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
                 yMax={VmaxGrafico}
                 yMin={-VmaxGrafico}
                 traza={diagrama('cortante')}
-                opciones={{ ...opciones, regiones: false, energia: false, teorica: false, puntos: false }}
+                puntosClave={rotulosCortante}
+                opciones={{ ...opciones, regiones: false, energia: false, teorica: false, puntos: true, etiquetas: true }}
                 decimalesX={0}
               />
             )}
