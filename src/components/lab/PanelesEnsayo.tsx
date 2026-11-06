@@ -44,9 +44,21 @@ export function MandosMaquina({ m, nombre = 'probeta', puedeMontar = true }: { m
           <Icono tipo="retirar" /> Desmontar
         </button>
       )}
-      <button className="btn-grande" onClick={acciones.tarar} disabled={!permisos.tarar} title="Pone a cero los instrumentos antes de cargar">
-        <Icono tipo="cero" /> {m.tarado ? 'Tarado ✓' : 'Cero / tara'}
-      </button>
+      {estado === 'desmontada' || (estado === 'montada' && m.sim.x === 0) ? (
+        <button className="btn-grande" onClick={acciones.tarar} disabled={!permisos.tarar} title="Pone a cero los instrumentos antes de cargar">
+          <Icono tipo="cero" /> {m.tarado ? 'Tarado ✓' : 'Cero / tara'}
+        </button>
+      ) : (
+        // Una vez usada la probeta, la tara ya no aplica: aquí se empieza de nuevo con una probeta sin ensayar.
+        <button
+          className="btn-grande btn-peligro-suave"
+          onClick={() => acciones.nuevaProbeta()}
+          disabled={m.enMovimiento}
+          title={`Retira esta ${nombre} y prepara una nueva, sin ensayar (conserva material y geometría)`}
+        >
+          <Icono tipo="reiniciar" /> Nueva {nombre}
+        </button>
+      )}
       {m.enMovimiento ? (
         <button className="btn-grande btn-pausa" onClick={acciones.pausar}>
           <Icono tipo="pausa" /> Pausa
@@ -248,7 +260,7 @@ export function textosEstadoBase(m: EnsayoMaquina, velocidad: string, nombre = '
         ? `En pausa, sin carga — puede continuar (recarga) o desmontar la ${nombre}`
         : 'En pausa, con carga — descargue antes de desmontar; puede mover la máquina manualmente',
     descargando: `Descargando · ${velocidad}`,
-    retirada: `${nombre[0].toUpperCase()}${nombre.slice(1)} retirada. Vuelva a montarla para recargarla o use «Nueva probeta»`,
+    retirada: `${nombre[0].toUpperCase()}${nombre.slice(1)} retirada. Vuelva a montarla para recargarla o use «Nueva ${nombre}»`,
     finalizada: 'Fin de recorrido: la máquina se detuvo sin rotura. Descargue para retirar la probeta',
     fracturada: 'Rotura — la máquina detectó la caída de carga',
   };

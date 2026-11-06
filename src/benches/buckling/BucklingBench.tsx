@@ -190,7 +190,7 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
 
   const textos = {
     ...textosEstadoBase(m, `travesaño a ${fmt(velocidad, 2)} mm/min`, 'columna'),
-    retirada: `Columna retirada${fluyo(s.xMax) ? ` — quedó curvada (flecha permanente ${fmt(delta, 2)} mm)` : ' — recuperó su forma (pandeo elástico)'}. Vuelva a montarla o use «Nueva probeta»`,
+    retirada: `Columna retirada${fluyo(s.xMax) ? ` — quedó curvada (flecha permanente ${fmt(delta, 2)} mm)` : ' — recuperó su forma (pandeo elástico)'}. Vuelva a montarla o use «Nueva columna»`,
     finalizada: `Fin de recorrido (flecha lateral ${fmt(flechaFin, 1)} mm). Descargue para retirar la columna`,
     fracturada: 'Columna rota — la máquina detectó la caída de carga',
   };
@@ -467,7 +467,7 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
         <section className="lab-panel">
           <div className="lab-panel-titulo">Material de la columna</div>
           <ChipsMaterial materialId={sesion.materialId} onChange={(id) => m.acciones.nuevaProbeta(id)} disabled={montada} soloIsotropicos />
-          {montada && <p className="nota">Para cambiar material o geometría, desmonte la columna o use «Nueva probeta».</p>}
+          {montada && <p className="nota">Para cambiar material o geometría, desmonte la columna o use «Nueva columna».</p>}
           <details className="ficha-desplegable">
             <summary>Ficha técnica del material</summary>
             <FichaMaterial material={material} />

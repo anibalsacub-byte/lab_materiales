@@ -146,7 +146,7 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
 
   const textos = {
     ...textosEstadoBase(m, `travesaño a ${fmt(velocidad, 1)} mm/min`, 'viga'),
-    retirada: `Viga retirada — quedó con una flecha permanente de ${fmt(s.x, 3)} mm. Vuelva a montarla o use «Nueva probeta»`,
+    retirada: `Viga retirada — quedó con una flecha permanente de ${fmt(s.x, 3)} mm. Vuelva a montarla o use «Nueva viga»`,
     finalizada: `Fin de recorrido (flecha L/10 = ${fmt(flechaRecorrido, 1)} mm): la viga dúctil se dobló sin romper. Descargue para retirarla`,
     fracturada: 'Viga rota — la máquina detectó la caída de carga',
   };
@@ -454,7 +454,7 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
         <section className="lab-panel">
           <div className="lab-panel-titulo">Material de la viga</div>
           <ChipsMaterial materialId={sesion.materialId} onChange={cambiarMaterial} disabled={montada} soloIsotropicos />
-          {montada && <p className="nota">Para cambiar material o geometría, desmonte la viga o use «Nueva probeta».</p>}
+          {montada && <p className="nota">Para cambiar material o geometría, desmonte la viga o use «Nueva viga».</p>}
           <details className="ficha-desplegable">
             <summary>Ficha técnica del material</summary>
             <FichaMaterial material={material} />
