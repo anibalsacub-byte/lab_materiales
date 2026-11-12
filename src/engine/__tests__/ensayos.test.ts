@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { obtenerMaterial, moduloCorte } from '../materials';
 import { deformacionRoturaCompresion, esfuerzoCompresion, esfuerzoEnDeformacion, esfuerzoSinEstriccion, parametrosCurvaBilineal } from '../mechanics/axial';
-import { cargaEnFlecha, curvaCargaFlecha, distribucionEsfuerzoFlexion, inerciaSeccionFlexion, momentoDesdeCurvatura } from '../mechanics/bending';
+import { cargaEnFlecha, curvaCargaFlecha, distribucionEsfuerzoFlexion, flexibilidadCortante, inerciaSeccionFlexion, momentoDesdeCurvatura } from '../mechanics/bending';
 import { deformacionAngularRotura, distribucionCortante, momentoPolarInerciaCircular, parTorsor } from '../mechanics/torsion';
 import { cargaCriticaEuler, deflexionConImperfeccion, esbeltezTransicionJohnson, esfuerzoCriticoJohnsonEuler, estadoColumna, hitoColumna, type ColumnaEnsayo } from '../mechanics/buckling';
 
@@ -49,12 +49,24 @@ describe('Flexión con plasticidad', () => {
     expect(momentoDesdeCurvatura(a36, rect, kappaMeseta)! / My).toBeLessThan(1.5);
   });
 
-  it('3 puntos, régimen elástico: δ = PL³/(48EI)', () => {
+  it('3 puntos, régimen elástico: δ = PL³/(48EI) + PL/(4kGA) (flexión + cortante de Timoshenko)', () => {
     const L = 200;
     const curva = curvaCargaFlecha(a36, rect, L, 'tres-puntos');
-    const delta = 0.05;
-    expect(cargaEnFlecha(curva, delta)).toBeCloseTo((48 * 200000 * I * delta) / L ** 3, -1);
-    expect(curva.rigidez).toBeCloseTo((48 * 200000 * I) / L ** 3, 6);
+    const G = 200000 / (2 * (1 + 0.26));
+    const kEsperada = 1 / (L ** 3 / (48 * 200000 * I) + L / (4 * (5 / 6) * G * 200));
+    expect(curva.rigidezFlexion).toBeCloseTo((48 * 200000 * I) / L ** 3, 6);
+    expect(curva.rigidez).toBeCloseTo(kEsperada, 6);
+    expect(cargaEnFlecha(curva, 0.05) / (kEsperada * 0.05)).toBeCloseTo(1, 2);
+  });
+
+  it('la flecha por cortante pesa en vigas cortas: E·h²/(k·G·L²), ~3 % con L/h = 10 y ~27 % con L/h = 3,33', () => {
+    const corta = (L: number, h: number) => {
+      const curva = curvaCargaFlecha(a36, { tipo: 'rectangular', b: 20, h }, L, 'tres-puntos');
+      return curva.flexibilidadCortante * curva.rigidezFlexion; // flecha por cortante / flecha por flexión
+    };
+    expect(corta(600, 60)).toBeCloseTo(0.03, 2);
+    expect(corta(200, 60)).toBeCloseTo((2 * 1.26 * (60 / 200) ** 2) / (5 / 6), 6);
+    expect(flexibilidadCortante(a36, rect, 300, 'cuatro-puntos') / flexibilidadCortante(a36, rect, 300, 'tres-puntos')).toBeCloseTo(4 / 6, 9);
   });
 
   it('4 puntos, régimen elástico: δ = 23PL³/(1296EI)', () => {

@@ -29,6 +29,7 @@ import { obtenerMaterial } from '../../engine/materials';
 import {
   cargaEnFlecha,
   distribucionEsfuerzoFlexion,
+  coeficienteCortante,
   curvaCargaFlecha,
   inerciaSeccionFlexion,
   momentoCentral,
@@ -71,6 +72,8 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
   const areaSeccion = tipoSeccion === 'rectangular' ? b * h : (Math.PI * d ** 2) / 4;
 
   const curva = useMemo(() => curvaCargaFlecha(material, seccion, L, config), [material, seccion, L, config]);
+  /** Parte de la flecha elástica que se debe al cortante (Timoshenko), en %. */
+  const porcentajeCortante = 100 * curva.flexibilidadCortante * curva.rigidez;
   // Más allá de ~L/10 la teoría de pequeñas deflexiones deja de valer y la viga desliza sobre los apoyos.
   const flechaRecorrido = L / 10;
   const rompe = curva.deltaRotura < flechaRecorrido;
@@ -256,12 +259,24 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
           : undefined,
     },
     {
-      nombre: 'Módulo de Young por flexión',
+      nombre: 'Flecha elástica: flexión + cortante (Timoshenko)',
+      formula: config === 'tres-puntos' ? 'δ = P·L³/(48·E·I) + P·L/(4·k·G·A)' : 'δ = 23·P·L³/(1296·E·I) + P·L/(6·k·G·A)',
+      sustitucion: Pv !== undefined ? `${fmt(Pv / curva.rigidezFlexion, 4)} mm + ${fmt(Pv * curva.flexibilidadCortante, 4)} mm` : undefined,
+      resultado: Pv !== undefined ? `${fmt(Pv / curva.rigidez, 4)} mm` : undefined,
+      inactiva: fluye,
+      nota: `El cortante aporta ${fmt(porcentajeCortante, 1)} % de la flecha elástica (k = ${tipoSeccion === 'rectangular' ? '5/6' : fmt(coeficienteCortante(seccion, material.propiedades.nu ?? 0.3), 3)}, G = E/(2(1 + ν))).`,
+    },
+    {
+      nombre: 'Módulo de Young por flexión (Euler–Bernoulli)',
       formula: formulaE,
       sustitucion: elasticoAhora && Pv !== undefined && dV ? (config === 'tres-puntos' ? `${fmt(Pv, 1)}·${fmt(L, 0)}³/(48·${fmt(I, 1)}·${fmt(dV, 3)})` : `23·${fmt(Pv, 1)}·${fmt(L, 0)}³/(1296·${fmt(I, 1)}·${fmt(dV, 3)})`) : undefined,
       resultado: elasticoAhora && Pv !== undefined && dV ? `${fmt(((config === 'tres-puntos' ? 1 / 48 : 23 / 1296) * Pv * L ** 3) / (I * dV) / 1000, 1)} GPa` : undefined,
       inactiva: !elasticoAhora,
-      nota: elasticoAhora ? undefined : 'Solo en la zona elástica (recta inicial de la curva carga–flecha).',
+      nota: !elasticoAhora
+        ? 'Solo en la zona elástica (recta inicial de la curva carga–flecha).'
+        : L / alto < 8
+          ? `Esta fórmula ignora el cortante: con L/h = ${fmt(L / alto, 1)} da un E ~${fmt(porcentajeCortante, 0)} % por debajo del real.`
+          : undefined,
     },
   ];
 
@@ -477,7 +492,19 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
           <p className="nota">
             I = {fmt(I, 1)} mm⁴ · c = {fmt(c, 1)} mm · L/h = {fmt(L / alto, 1)} · {celda.nombre} · deflectómetro (±25 mm) · probetas usadas: {m.probetasUsadas}.
           </p>
-          {L / alto < 8 && <p className="advertencia">Viga corta (L/h &lt; 8): la deformación por cortante deja de ser despreciable y la flecha real será mayor que la de la teoría de Euler–Bernoulli.</p>}
+          {L / alto < 3 ? (
+            <p className="advertencia">
+              Viga de gran canto (L/h = {fmt(L / alto, 1)} &lt; 3): trabaja más como un arco que como una viga. Ni Euler–Bernoulli ni la corrección
+              de Timoshenko la describen bien: los resultados del banco son solo orientativos.
+            </p>
+          ) : (
+            L / alto < 8 && (
+              <p className="advertencia">
+                Viga corta (L/h = {fmt(L / alto, 1)} &lt; 8): el cortante aporta {fmt(porcentajeCortante, 1)} % de la flecha elástica. El banco ya lo
+                incluye (Timoshenko); las fórmulas de Euler–Bernoulli darán un E menor que el real.
+              </p>
+            )
+          )}
         </section>
 
         <section className="lab-panel">
@@ -516,8 +543,15 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
                 <TablaValidacion>
                   <FilaValidacion etiqueta="Mmáx (momento en el centro)" valorEstudiante={calc.Mmax} valorReferencia={momentoCentral(puntoSel.F, L, config)} unidad="N·mm" />
                   {elasticoSel && <FilaValidacion etiqueta="σmáx (fibra extrema)" valorEstudiante={calc.sigmaMax} valorReferencia={(momentoCentral(puntoSel.F, L, config) * c) / I} unidad="MPa" />}
-                  {elasticoSel && <FilaValidacion etiqueta="E (módulo de Young)" valorEstudiante={calc.E} valorReferencia={E} unidad="MPa" />}
+                  {/* La fórmula de Euler–Bernoulli aplicada a la flecha medida (que incluye el cortante) da un E aparente menor. */}
+                  {elasticoSel && <FilaValidacion etiqueta="E por la fórmula de Euler–Bernoulli" valorEstudiante={calc.E} valorReferencia={E * (1 - porcentajeCortante / 100)} unidad="MPa" />}
                 </TablaValidacion>
+              )}
+              {elasticoSel && porcentajeCortante > 2 && (
+                <p className="nota">
+                  El E real del material es {fmt(E / 1000, 1)} GPa. La fórmula de Euler–Bernoulli da {fmt(porcentajeCortante, 1)} % menos porque
+                  atribuye a la flexión la flecha que en realidad produce el cortante (L/h = {fmt(L / alto, 1)}).
+                </p>
               )}
             </>
           )}

@@ -56,6 +56,7 @@ Implementado y funcional:
     sigue subiendo (se detiene al 50 % o a la capacidad de la máquina); los frágiles rompen por
     cortante a σUc (fundición gris ≈ 752 MPa, 3,6 veces su resistencia a tracción).
   - **Banco 3 — Flexión**: 3 y 4 puntos con rodillos y deflectómetro; curva carga–flecha con
+    flecha por cortante de Timoshenko (avisos de viga corta, L/h < 8, y de gran canto, L/h < 3), con
     plasticidad (primera fluencia Py, rótula plástica, rotura frágil de la fibra traccionada) y
     diagramas V(x) y M(x) a la carga actual; distribución σ(y) en la sección central, con las zonas
     plastificadas y los esfuerzos residuales que quedan al descargar.
@@ -135,7 +136,7 @@ Requiere Node.js 20+.
 ```bash
 npm install
 npm run dev        # http://localhost:5173 con recarga en caliente
-npm test            # 143 pruebas de validación numérica (vitest)
+npm test            # 144 pruebas de validación numérica (vitest)
 npm run build       # compila TypeScript y genera dist/ para producción
 npm run preview     # sirve dist/ localmente
 ```

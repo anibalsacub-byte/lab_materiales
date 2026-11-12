@@ -217,6 +217,29 @@ export function rigidezFlexion(E: number, I: number, L: number, config: Configur
   return config === 'tres-puntos' ? (48 * E * I) / L ** 3 : (1296 * E * I) / (23 * L ** 3);
 }
 
+/**
+ * Coeficiente de cortante k de Timoshenko: 5/6 en la sección rectangular y 6(1 + ν)/(7 + 6ν) en
+ * la circular maciza (Cowper). Corrige que el cortante no se reparte uniforme en la sección.
+ */
+export function coeficienteCortante(s: SeccionFlexion, nu: number): number {
+  return s.tipo === 'rectangular' ? 5 / 6 : (6 * (1 + nu)) / (7 + 6 * nu);
+}
+
+/**
+ * Flecha por cortante en el centro por unidad de carga total (mm/N), según Timoshenko:
+ * P·L/(4kGA) en 3 puntos y P·L/(6kGA) en 4 puntos (solo los tercios extremos tienen cortante).
+ * Euler–Bernoulli la desprecia; pesa en vigas cortas: con L/h = 10 es ~3 % de la flecha por
+ * flexión, con L/h = 3 casi un tercio.
+ */
+export function flexibilidadCortante(material: Material, s: SeccionFlexion, L: number, config: ConfiguracionFlexion): number {
+  const E = material.propiedades.E_MPa ?? 200000;
+  const nu = material.propiedades.nu ?? 0.3;
+  const G = material.propiedades.G_MPa ?? E / (2 * (1 + nu));
+  const A = s.tipo === 'rectangular' ? s.b * s.h : (Math.PI * s.d ** 2) / 4;
+  const k = coeficienteCortante(s, nu);
+  return config === 'tres-puntos' ? L / (4 * k * G * A) : L / (6 * k * G * A);
+}
+
 export interface CurvaCargaFlecha {
   /** Flecha en el centro (mm) y carga total (N), crecientes. */
   delta: number[];
@@ -227,14 +250,21 @@ export interface CurvaCargaFlecha {
   /** Primera fluencia de la fibra extrema (solo materiales con σY). */
   PFluencia?: number;
   deltaFluencia?: number;
+  /** Rigidez elástica P/δ con flexión y cortante (Timoshenko). */
   rigidez: number;
+  /** Solo la parte de flexión (Euler–Bernoulli), la que usan las fórmulas habituales del curso. */
+  rigidezFlexion: number;
+  /** Flecha por cortante por unidad de carga (mm/N). */
+  flexibilidadCortante: number;
 }
 
 /**
  * Curva carga–flecha de una viga simplemente apoyada en 3 o 4 puntos, con plasticidad: para cada
  * carga, la curvatura de cada sección sale de invertir M(κ) y la flecha en el centro se integra
  * por trabajos virtuales, δ = ∫ κ(x)·m(x) dx (m = momento de una carga unitaria en el centro).
- * En régimen elástico reproduce PL³/(48EI) y 23PL³/(1296EI). Teoría de pequeñas deflexiones.
+ * A esa flecha por flexión se suma la de cortante de Timoshenko ({@link flexibilidadCortante}),
+ * elástica (el cortante rara vez llega a fluir en un ensayo de flexión). En régimen elástico:
+ * δ = PL³/(48EI) + PL/(4kGA) en 3 puntos. Teoría de pequeñas deflexiones.
  */
 export function curvaCargaFlecha(material: Material, s: SeccionFlexion, L: number, config: ConfiguracionFlexion, nPuntos = 160): CurvaCargaFlecha {
   const E = material.propiedades.E_MPa ?? 200000;
@@ -279,15 +309,17 @@ export function curvaCargaFlecha(material: Material, s: SeccionFlexion, L: numbe
     return 2 * delta;
   };
 
+  const fCortante = flexibilidadCortante(material, s, L, config);
   const delta: number[] = [];
   const P: number[] = [];
   for (let j = 0; j <= nPuntos; j++) {
     const Pj = PLim * (1 - (1 - j / nPuntos) ** 2);
     P.push(Pj);
-    delta.push(flecha(Pj));
+    delta.push(flecha(Pj) + Pj * fCortante);
   }
 
-  const rigidez = rigidezFlexion(E, I, L, config);
+  const kFlexion = rigidezFlexion(E, I, L, config);
+  const rigidez = 1 / (1 / kFlexion + fCortante);
   const sigmaY = material.propiedades.sigmaY_MPa;
   let PFluencia: number | undefined;
   if (material.modelo === 'elastico_plastico_bilineal' && sigmaY !== undefined) {
@@ -302,6 +334,8 @@ export function curvaCargaFlecha(material: Material, s: SeccionFlexion, L: numbe
     PFluencia,
     deltaFluencia: PFluencia !== undefined ? PFluencia / rigidez : undefined,
     rigidez,
+    rigidezFlexion: kFlexion,
+    flexibilidadCortante: fCortante,
   };
 }
 
