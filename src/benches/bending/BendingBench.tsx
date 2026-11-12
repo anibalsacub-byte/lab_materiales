@@ -466,13 +466,13 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
             />
             {tipoSeccion === 'rectangular' ? (
               <>
-                <Stepper etiqueta="Ancho b (mm)" valor={b} onChange={setB} min={5} max={50} paso={1} decimales={0} disabled={montada} />
-                <Stepper etiqueta="Altura h (mm)" valor={h} onChange={setH} min={3} max={30} paso={1} decimales={0} disabled={montada} />
+                <Stepper etiqueta="Ancho b (mm)" valor={b} onChange={setB} min={5} max={60} paso={1} decimales={0} disabled={montada} />
+                <Stepper etiqueta="Altura h (mm)" valor={h} onChange={setH} min={3} max={100} paso={1} decimales={0} disabled={montada} />
               </>
             ) : (
-              <Stepper etiqueta="Diámetro d (mm)" valor={d} onChange={setD} min={4} max={30} paso={1} decimales={0} disabled={montada} />
+              <Stepper etiqueta="Diámetro d (mm)" valor={d} onChange={setD} min={4} max={60} paso={1} decimales={0} disabled={montada} />
             )}
-            <Stepper etiqueta="Claro entre apoyos L (mm)" valor={L} onChange={setL} min={60} max={600} paso={10} decimales={0} disabled={montada} />
+            <Stepper etiqueta="Claro entre apoyos L (mm)" valor={L} onChange={setL} min={60} max={1000} paso={10} decimales={0} disabled={montada} />
           </ControlesMovimiento>
           <p className="nota">
             I = {fmt(I, 1)} mm⁴ · c = {fmt(c, 1)} mm · L/h = {fmt(L / alto, 1)} · {celda.nombre} · deflectómetro (±25 mm) · probetas usadas: {m.probetasUsadas}.
