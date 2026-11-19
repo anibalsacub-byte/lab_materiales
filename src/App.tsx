@@ -5,6 +5,7 @@ import { BendingBench } from './benches/bending/BendingBench';
 import { TorsionBench } from './benches/torsion/TorsionBench';
 import { BucklingBench } from './benches/buckling/BucklingBench';
 import { ImpactBench } from './benches/impact/ImpactBench';
+import { StructuresBench } from './benches/structures/StructuresBench';
 import { SectionsStation } from './stations/sections/SectionsStation';
 import { MohrStation } from './stations/mohr/MohrStation';
 
@@ -19,6 +20,7 @@ type Vista =
   | 'banco-uniones'
   | 'banco-presion'
   | 'banco-impacto'
+  | 'banco-estructuras'
   | 'estacion-secciones'
   | 'estacion-mohr';
 
@@ -39,6 +41,7 @@ const BANCOS: ItemCatalogo[] = [
   { vista: 'banco-uniones', nombre: 'Banco 7 — Uniones mecánicas', descripcion: 'Pernos, pasadores y placas. Próxima etapa.', disponible: false },
   { vista: 'banco-presion', nombre: 'Banco 8 — Recipientes a presión', descripcion: 'Pared delgada, esfuerzos circunferencial y longitudinal. Próxima etapa.', disponible: false },
   { vista: 'banco-impacto', nombre: 'Banco 9 — Impacto Charpy', descripcion: 'Péndulo de 300 J: probetas acondicionadas en baño, curva de transición dúctil–frágil, T27J y superficie de fractura.', disponible: true },
+  { vista: 'banco-estructuras', nombre: 'Banco 10 — Concurso de estructuras', descripcion: 'Torres reticuladas en 3D (tallarín, bambú, balsa, palitos): armado libre, carga con discos hasta el colapso, secuencia de fallas y ranking por eficiencia.', disponible: true },
 ];
 
 const ESTACIONES: ItemCatalogo[] = [
@@ -68,6 +71,7 @@ export default function App() {
   if (vista === 'banco-flexion') return <div className="app-shell"><BendingBench onVolver={volver} /></div>;
   if (vista === 'banco-torsion') return <div className="app-shell"><TorsionBench onVolver={volver} /></div>;
   if (vista === 'banco-impacto') return <div className="app-shell"><ImpactBench onVolver={volver} /></div>;
+  if (vista === 'banco-estructuras') return <div className="app-shell"><StructuresBench onVolver={volver} /></div>;
   if (vista === 'banco-pandeo') return <div className="app-shell"><BucklingBench onVolver={volver} /></div>;
   if (vista === 'estacion-secciones') return <div className="app-shell"><SectionsStation onVolver={volver} /></div>;
   if (vista === 'estacion-mohr') return <div className="app-shell"><MohrStation onVolver={volver} /></div>;

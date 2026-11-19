@@ -350,3 +350,11 @@ body.modo-lab, body.modo-lab #root { background: #0a1219; }
 .ec-nota { font-size: 11.5px; color: #8aa0b6; margin-top: 2px; }
 .ec-inactiva { opacity: 0.45; }
 .boton-texto { background: none !important; border: none !important; color: var(--color-text-muted) !important; text-decoration: underline; padding: 2px 4px; font-size: 12px; }
+/* Banco 10: concurso de estructuras */
+.vista-3d { user-select: none; }
+.leyenda-fuerzas { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 12px; color: var(--color-text-muted); margin: 8px 0 10px; }
+.leyenda-fuerzas i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.leyenda-fuerzas i.rota { background: repeating-linear-gradient(90deg, #5d6b78 0 4px, transparent 4px 7px); }
+.lab .fila > button.activo { border-color: var(--lab-cian); color: var(--lab-cian); }
+.btn-mini { padding: 0 7px; font-size: 13px; line-height: 20px; }
+.campo label { display: block; font-size: 12px; color: var(--color-text-muted); margin-bottom: 4px; }

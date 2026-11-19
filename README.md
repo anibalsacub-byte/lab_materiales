@@ -73,6 +73,18 @@ Implementado y funcional:
   vacío para medir las pérdidas, curva de transición dúctil–frágil con T27J, porcentaje de fractura
   dúctil y superficie de fractura, y comparación entre materiales (aceros BCC con transición, FCC sin
   ella, fundición gris frágil). Curvas de referencia ilustrativas, no datos certificados.
+- **Banco 10 — Concurso de estructuras**: torres reticuladas en 3D para concursos tipo «torre de
+  tallarines». Material (tallarín, brocheta de bambú, balsa, palito de helado, con propiedades
+  editables), sección por tipo de barra (haces de 1 a 7 hebras o palitos), pegamento de los nudos
+  (silicona, cola blanca, epóxico) con su resistencia y su peso. Armado por niveles (planta cuadrada o
+  triangular, altura, ahusamiento, diagonales simples, en zigzag o en X, diagonales en planta) y
+  edición libre en la vista 3D (quitar barras o unir dos nudos cualesquiera). Cálculo por el método de
+  rigidez de reticulados espaciales, detección de mecanismos, pandeo de cada barra (Euler–Johnson),
+  pandeo global de la torre (análisis lineal de estabilidad), excentricidad e imperfección lateral, y
+  dispersión de resistencia entre piezas reproducible por semilla. Carga con discos (como en el
+  concurso) o en rampa continua hasta el colapso progresivo, con curva carga–descenso, secuencia de
+  fallas y animación del colapso; bases del concurso, predicción del equipo y ranking por eficiencia
+  (carga/peso) o carga máxima, con exportación a CSV y diseños guardables como archivo.
 - **Estación A — Propiedades geométricas** y **Estación B — Círculo de Mohr**: herramientas de
   análisis interactivas con representación gráfica.
 - **Exportación**: mediciones a CSV, sesión completa a JSON, informe imprimible (PDF vía
@@ -136,7 +148,7 @@ Requiere Node.js 20+.
 ```bash
 npm install
 npm run dev        # http://localhost:5173 con recarga en caliente
-npm test            # 144 pruebas de validación numérica (vitest)
+npm test            # 155 pruebas de validación numérica (vitest)
 npm run build       # compila TypeScript y genera dist/ para producción
 npm run preview     # sirve dist/ localmente
 ```
