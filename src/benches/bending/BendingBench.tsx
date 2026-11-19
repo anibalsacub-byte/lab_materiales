@@ -101,7 +101,8 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
       };
     },
     clavePico: 'fuerza',
-    alReiniciar: () => historial.guardar(etiquetaEnsayo, traza),
+    // La curva se guarda en N: el gráfico puede pasar a kN en el ensayo siguiente.
+    alReiniciar: () => historial.guardar(etiquetaEnsayo, traza.map((p) => ({ x: p.x, y: p.y * fP }))),
   };
   const etiquetaEnsayo = `${material.nombreCorto ?? material.nombre} · ${config === 'tres-puntos' ? '3P' : '4P'} · ${tipoSeccion === 'rectangular' ? `${fmt(b, 0)}×${fmt(h, 0)}` : `Ø${fmt(d, 0)}`} · L ${fmt(L, 0)}`;
   const m = useEnsayoMaquina(sesionEnsayo, modelo);
@@ -220,7 +221,8 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
   const pasoActual = estado === 'desmontada' ? 2 : terminado ? 4 : 3;
   const formulaE = config === 'tres-puntos' ? 'E = P·L³/(48·I·δ)' : 'E = 23·P·L³/(1296·I·δ)';
   const formulaM = config === 'tres-puntos' ? 'M = P·L/4' : 'M = P·L/6';
-  const lim = limitesConComparadas(xFinal * 1.08, (Pmax / fP) * 1.15, historial.comparadas, !!opciones.comparar);
+  const comparadas = historial.comparadas.map((c) => ({ ...c, puntos: c.puntos.map((p) => ({ x: p.x, y: p.y / fP })) }));
+  const lim = limitesConComparadas(xFinal * 1.08, (Pmax / fP) * 1.15, comparadas, !!opciones.comparar);
 
   // Ecuaciones en vivo, con la carga y la flecha que leen ahora los instrumentos.
   const Pv = typeof Pleida === 'number' ? Pleida : undefined;
@@ -354,7 +356,7 @@ export function BendingBench({ onVolver }: { onVolver: () => void }) {
                 yEtiqueta={`Carga P (${uP})`}
                 xMax={lim.xMax}
                 yMax={lim.yMax}
-                comparadas={historial.comparadas}
+                comparadas={comparadas}
                 etiquetaActual={etiquetaEnsayo}
                 traza={traza}
                 referencia={referencia}

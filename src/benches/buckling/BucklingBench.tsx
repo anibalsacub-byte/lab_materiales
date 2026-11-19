@@ -140,7 +140,8 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
       };
     },
     clavePico: 'fuerza',
-    alReiniciar: () => historial.guardar(etiquetaEnsayo, traza),
+    // La curva se guarda en N: el gráfico puede pasar a kN en el ensayo siguiente.
+    alReiniciar: () => historial.guardar(etiquetaEnsayo, traza.map((p) => ({ x: p.x, y: p.y * fP }))),
   };
   const etiquetaEnsayo = `${material.nombreCorto ?? material.nombre} · ${tipoSeccion === 'rectangular' ? `${fmt(b, 0)}×${fmt(h, 0)}` : `Ø${fmt(d, 0)}${tipoSeccion === 'tubular' ? `/${fmt(dInt, 1)}` : ''}`} · L ${fmt(L, 0)} · K ${fmt(K, 2)}`;
   const m = useEnsayoMaquina(sesionEnsayo, modelo);
@@ -232,7 +233,8 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
   const calc = sesion.calculosEstudiante;
   const hayCalculo = ['Le', 'esbeltez', 'Pcr'].some((v) => calc[v] !== undefined);
   const pasoActual = estado === 'desmontada' ? 2 : terminado ? 4 : 3;
-  const lim = limitesConComparadas(xMaxGrafico, (Pmax / fP) * 1.15, historial.comparadas, !!opciones.comparar);
+  const comparadas = historial.comparadas.map((c) => ({ ...c, puntos: c.puntos.map((p) => ({ x: p.x, y: p.y / fP })) }));
+  const lim = limitesConComparadas(xMaxGrafico, (Pmax / fP) * 1.15, comparadas, !!opciones.comparar);
 
   // Curva de diseño Euler–Johnson (σcr frente a λ) y posición de esta columna.
   const sigmaYCol = ductil ? material.propiedades.sigmaY_MPa : undefined;
@@ -341,7 +343,7 @@ export function BucklingBench({ onVolver }: { onVolver: () => void }) {
                 yEtiqueta={`Carga axial P (${uP})`}
                 xMax={lim.xMax}
                 yMax={lim.yMax}
-                comparadas={historial.comparadas}
+                comparadas={comparadas}
                 etiquetaActual={etiquetaEnsayo}
                 traza={traza}
                 referencia={referencia}
