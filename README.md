@@ -84,7 +84,12 @@ Implementado y funcional:
   dispersión de resistencia entre piezas reproducible por semilla. Carga con discos (como en el
   concurso) o en rampa continua hasta el colapso progresivo, con curva carga–descenso, secuencia de
   fallas y animación del colapso; bases del concurso, predicción del equipo y ranking por eficiencia
-  (carga/peso) o carga máxima, con exportación a CSV y diseños guardables como archivo.
+  (carga/peso) o carga máxima, con exportación a CSV y diseños guardables como archivo. Edición 3D
+  fina: mover nudos por coordenadas, agregar nudos, dividir barras, pegarlos a la base, deshacer, cruces de
+  X pegados (pandeo en L/2) y aviso de nudos sin arriostrar. Modo **armadura plana 2D** (puentes), al
+  estilo de los simuladores de armaduras: dibujo libre de nudos, barras, apoyos articulados o de rodillo y
+  cargas sobre una cuadrícula en mm; plantillas Pratt, Howe y Warren; fuerzas, reacciones y equilibrio;
+  criterio de Maxwell; matriz de rigidez K·u = F; sección por barra y ensayo hasta el colapso.
 - **Estación A — Propiedades geométricas** y **Estación B — Círculo de Mohr**: herramientas de
   análisis interactivas con representación gráfica.
 - **Exportación**: mediciones a CSV, sesión completa a JSON, informe imprimible (PDF vía
@@ -148,7 +153,7 @@ Requiere Node.js 20+.
 ```bash
 npm install
 npm run dev        # http://localhost:5173 con recarga en caliente
-npm test            # 155 pruebas de validación numérica (vitest)
+npm test            # 164 pruebas de validación numérica (vitest)
 npm run build       # compila TypeScript y genera dist/ para producción
 npm run preview     # sirve dist/ localmente
 ```

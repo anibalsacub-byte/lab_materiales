@@ -212,16 +212,17 @@ export function generarTorre(p: ParametrosTorre): Estructura {
     const lado = p.ladoBase + (p.ladoSuperior - p.ladoBase) * t;
     for (const [x, y] of verticesPlanta(p.planta, lado)) nudos.push({ x, y, z: p.altura * t, apoyo: k === 0 });
   }
-  const agregar = (a: number, b: number, grupo: GrupoBarra) => barras.push({ a, b, grupo });
+  const agregar = (a: number, b: number, grupo: GrupoBarra, cruce = false) => barras.push(cruce ? { a, b, grupo, cruce } : { a, b, grupo });
+  const enX = p.caras === 'X';
   for (let k = 0; k < p.niveles; k++) {
     for (let c = 0; c < m; c++) {
       agregar(id(k, c), id(k + 1, c), 'pata');
       const sube = (k % 2 === 0) || p.caras !== 'zigzag';
       if (p.caras === 'diagonal' || p.caras === 'X' || p.caras === 'zigzag') {
-        if (sube) agregar(id(k, c), id(k + 1, c + 1), 'diagonal');
+        if (sube) agregar(id(k, c), id(k + 1, c + 1), 'diagonal', enX);
         else agregar(id(k, c + 1), id(k + 1, c), 'diagonal');
       }
-      if (p.caras === 'X') agregar(id(k, c + 1), id(k + 1, c), 'diagonal');
+      if (enX) agregar(id(k, c + 1), id(k + 1, c), 'diagonal', true);
     }
   }
   for (let k = 1; k <= p.niveles; k++) {
@@ -243,18 +244,60 @@ export function claveBarra(a: number, b: number): string {
   return a < b ? `${a}-${b}` : `${b}-${a}`;
 }
 
-/** Aplica las ediciones libres (barras quitadas y agregadas) a una torre generada. */
-export function aplicarEdiciones(base: Estructura, quitadas: string[], agregadas: [number, number][]): Estructura {
-  const fuera = new Set(quitadas);
+/** Cambios hechos a mano sobre la torre generada. Los nudos nuevos van después de los generados. */
+export interface EdicionesTorre {
+  quitadas: string[];
+  agregadas: [number, number][];
+  nudosNuevos: { x: number; y: number; z: number }[];
+  /** Coordenadas nuevas de nudos movidos (por índice). */
+  movidos: Record<number, { x: number; y: number; z: number }>;
+  /** Nudos pegados o despegados de la base (por índice). */
+  apoyos: Record<number, boolean>;
+}
+
+export const SIN_EDICIONES: EdicionesTorre = { quitadas: [], agregadas: [], nudosNuevos: [], movidos: {}, apoyos: {} };
+
+export function numeroEdiciones(ed: EdicionesTorre): number {
+  return ed.quitadas.length + ed.agregadas.length + ed.nudosNuevos.length + Object.keys(ed.movidos).length + Object.keys(ed.apoyos).length;
+}
+
+/** Aplica las ediciones libres (nudos nuevos o movidos, barras quitadas y agregadas) a una torre generada. */
+export function aplicarEdiciones(base: Estructura, ed: EdicionesTorre): Estructura {
+  const todos: Nudo[] = [...base.nudos, ...ed.nudosNuevos.map((n) => ({ ...n, apoyo: false }))];
+  const nudos = todos.map((n, i) => ({ ...n, ...(ed.movidos[i] ?? {}), apoyo: ed.apoyos[i] ?? n.apoyo }));
+  const fuera = new Set(ed.quitadas);
   const barras = base.barras.filter((b) => b.grupo === 'placa' || !fuera.has(claveBarra(b.a, b.b)));
   const existentes = new Set(barras.map((b) => claveBarra(b.a, b.b)));
-  for (const [a, b] of agregadas) {
+  for (const [a, b] of ed.agregadas) {
     const k = claveBarra(a, b);
-    if (a === b || existentes.has(k) || a >= base.nudos.length || b >= base.nudos.length) continue;
+    if (a === b || existentes.has(k) || a >= nudos.length || b >= nudos.length) continue;
     existentes.add(k);
     barras.push({ a, b, grupo: 'libre' });
   }
-  return { nudos: base.nudos, barras };
+  return { nudos, barras };
+}
+
+/**
+ * Divide la barra a–b con un nudo nuevo en su punto medio (por ejemplo, para arriostrar una pata
+ * a media altura). Devuelve las ediciones nuevas y el índice del nudo creado.
+ */
+export function dividirBarra(e: Estructura, ed: EdicionesTorre, j: number, nGenerados: number): { ed: EdicionesTorre; nudo: number } {
+  const { a, b, grupo } = e.barras[j];
+  const p = e.nudos[a];
+  const q = e.nudos[b];
+  const nudo = nGenerados + ed.nudosNuevos.length;
+  const k = claveBarra(a, b);
+  const agregadas = grupo === 'libre' ? ed.agregadas.filter(([x, y]) => claveBarra(x, y) !== k) : ed.agregadas;
+  const quitadas = grupo === 'libre' ? ed.quitadas : [...ed.quitadas, k];
+  return {
+    nudo,
+    ed: {
+      ...ed,
+      quitadas,
+      agregadas: [...agregadas, [a, nudo], [nudo, b]],
+      nudosNuevos: [...ed.nudosNuevos, { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, z: (p.z + q.z) / 2 }],
+    },
+  };
 }
 
 export type GrupoSeccion = 'pata' | 'anillo' | 'diagonal' | 'planta';
@@ -272,10 +315,17 @@ export interface ConfiguracionMaqueta {
   /** Variación aleatoria de resistencia entre piezas (reproducible con la semilla). */
   dispersion: boolean;
   semilla: number;
+  /**
+   * Cruces de las X pegados: cada diagonal queda arriostrada por la otra en su punto medio y pandea
+   * en la mitad de su largo (criterio usual para arriostramientos en X con la otra diagonal en tracción).
+   */
+  crucesPegados?: boolean;
 }
 
 export interface DetalleBarra {
   L: number;
+  /** Longitud de pandeo (L, o L/2 en una cruz en X pegada). */
+  Lp: number;
   seccion: SeccionMaqueta | null;
   /** Esbeltez L/r (articulada en ambos extremos, K = 1). */
   lambda: number;
@@ -312,13 +362,14 @@ export function propiedadesMaqueta(e: Estructura, cfg: ConfiguracionMaqueta): { 
     const g = grupoSeccion(b.grupo);
     if (g === null) {
       props.push({ EA: EAmax * 50, capTraccion: Infinity, capCompresion: Infinity, modoTraccion: 'traccion', modoCompresion: 'pandeo', rigida: true });
-      detalle.push({ L, seccion: null, lambda: 0, Pcr: Infinity, capUnion: Infinity, masa_g: 0, factor: 1 });
+      detalle.push({ L, Lp: L, seccion: null, lambda: 0, Pcr: Infinity, capUnion: Infinity, masa_g: 0, factor: 1 });
       continue;
     }
-    const s = mat.secciones.find((x) => x.id === cfg.secciones[g]) ?? mat.secciones[0];
+    const s = mat.secciones.find((x) => x.id === (b.seccion ?? cfg.secciones[g])) ?? mat.secciones[0];
     const r = Math.sqrt(s.I / s.A);
-    const lambda = L / r;
-    const Pcr = (Math.PI ** 2 * mat.E_MPa * s.I) / (L * L);
+    const Lp = b.cruce && cfg.crucesPegados ? L / 2 : L;
+    const lambda = Lp / r;
+    const Pcr = (Math.PI ** 2 * mat.E_MPa * s.I) / (Lp * Lp);
     const capBarraT = mat.sigmaT_MPa * s.A * factor;
     const capUnion = union.tau_MPa * s.perimetro * union.solape_mm;
     const capC = esfuerzoCriticoJohnsonEuler(mat.E_MPa, mat.sigmaC_MPa, lambda) * s.A * factor;
@@ -331,7 +382,7 @@ export function propiedadesMaqueta(e: Estructura, cfg: ConfiguracionMaqueta): { 
       modoTraccion: modoT,
       modoCompresion: lambda >= lt ? 'pandeo' : 'aplastamiento',
     });
-    detalle.push({ L, seccion: s, lambda, Pcr: Pcr * factor, capUnion, masa_g: mat.densidad_kg_m3 * 1e-6 * s.A * L, factor });
+    detalle.push({ L, Lp, seccion: s, lambda, Pcr: Pcr * factor, capUnion, masa_g: mat.densidad_kg_m3 * 1e-6 * s.A * L, factor });
   }
   return { props, detalle };
 }
@@ -349,10 +400,17 @@ export function masaMaqueta(e: Estructura, detalle: DetalleBarra[], union: Union
   return { barras_g: barras, pegamento_g: pegamento, total_g: barras + pegamento };
 }
 
-/** Nudos sobre los que se apoya la placa de carga (los más altos). */
+/** Nudos sobre los que se apoya la placa de carga (los más altos que tienen alguna barra). */
 export function nudosSuperiores(e: Estructura): number[] {
-  const zMax = Math.max(...e.nudos.map((n) => n.z));
-  return e.nudos.map((n, i) => (Math.abs(n.z - zMax) < 1e-6 ? i : -1)).filter((i) => i >= 0);
+  const conBarras = new Set<number>();
+  for (const b of e.barras) {
+    conBarras.add(b.a);
+    conBarras.add(b.b);
+  }
+  const usados = e.nudos.map((_, i) => i).filter((i) => conBarras.has(i));
+  if (!usados.length) return [];
+  const zMax = Math.max(...usados.map((i) => e.nudos[i].z));
+  return usados.filter((i) => Math.abs(e.nudos[i].z - zMax) < 1e-6);
 }
 
 export interface OpcionesCarga {

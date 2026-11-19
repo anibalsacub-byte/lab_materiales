@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BarraPasos, DisplayDigital, Segmentado, Stepper } from '../../components/lab/LabUI';
 import { EcuacionesVivo, ResumenItem, fmt, useModoLab, type Ecuacion } from '../../components/lab/PanelesEnsayo';
 import { GraficoEnsayo, type OpcionesGrafico, type PuntoClave, type PuntoXY } from '../../components/svg/GraficoEnsayo';
 import { descargarArchivo, exportarSvgComoPng } from '../../trial/exportar';
-import { analizarColapso, estadoEnCarga, type ModoFalla } from '../../engine/mechanics/reticulado3d';
+import { analizarColapso, estadoEnCarga, nudosSinArriostrar, type ModoFalla } from '../../engine/mechanics/reticulado3d';
 import {
   G_MM_S2,
   MATERIALES_MAQUETA,
@@ -12,11 +12,15 @@ import {
   cargaPesoPropio,
   cargaUnitariaPlaca,
   claveBarra,
+  dividirBarra,
   generarTorre,
   masaMaqueta,
   nudosSuperiores,
+  numeroEdiciones,
   propiedadesMaqueta,
+  SIN_EDICIONES,
   type ArriostreCaras,
+  type EdicionesTorre,
   type ArriostrePlanta,
   type GrupoSeccion,
   type MaterialMaqueta,
@@ -24,6 +28,7 @@ import {
   type Planta,
 } from '../../engine/mechanics/torres';
 import { Vista3DSVG, type BarraVisual } from './Vista3DSVG';
+import { ArmaduraPlanaBench } from './ArmaduraPlanaBench';
 
 const ID_GRAFICO = 'grafico-carga-descenso';
 const ID_VISTA = 'vista-3d-torre';
@@ -81,16 +86,21 @@ interface Reglas {
 
 interface DisenoGuardado {
   tipo: 'torre-lab-rm';
-  version: 1;
+  version: 1 | 2;
   equipo: string;
   param: ParametrosTorre;
   materialId: string;
   unionId: string;
   secciones: Record<GrupoSeccion, string>;
-  quitadas: string[];
-  agregadas: [number, number][];
+  /** Versión 1: solo barras quitadas y agregadas. */
+  quitadas?: string[];
+  agregadas?: [number, number][];
+  ediciones?: EdicionesTorre;
+  crucesPegados?: boolean;
   propiedades?: Partial<MaterialMaqueta>;
 }
+
+type HerramientaEdicion = 'barras' | 'dividir' | 'nudo';
 
 function leerRanking(): EntradaRanking[] {
   try {
@@ -111,7 +121,7 @@ function guardarRanking(r: EntradaRanking[]) {
 
 const OPCIONES_GRAFICO: OpcionesGrafico = { etiquetas: true, puntos: true, regiones: false, offset: false, energia: false, cuadricula: true, teorica: false };
 
-export function StructuresBench({ onVolver }: { onVolver: () => void }) {
+function TorreBench({ onVolver, selectorModo }: { onVolver: () => void; selectorModo: ReactNode }) {
   useModoLab();
 
   // ---------- Diseño ----------
@@ -120,8 +130,10 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
   const [unionId, setUnionId] = useState('epoxi');
   const [secciones, setSecciones] = useState<Record<GrupoSeccion, string>>(SECCIONES_INICIALES.tallarin);
   const [propiedades, setPropiedades] = useState<Record<string, Partial<MaterialMaqueta>>>({});
-  const [quitadas, setQuitadas] = useState<string[]>([]);
-  const [agregadas, setAgregadas] = useState<[number, number][]>([]);
+  const [ed, setEd] = useState<EdicionesTorre>(SIN_EDICIONES);
+  const [historial, setHistorial] = useState<EdicionesTorre[]>([]);
+  const [herramienta, setHerramienta] = useState<HerramientaEdicion>('barras');
+  const [crucesPegados, setCrucesPegados] = useState(false);
   const [dispersion, setDispersion] = useState(true);
   const [semilla, setSemilla] = useState(2026);
   const [excentricidad, setExcentricidad] = useState(0);
@@ -159,13 +171,33 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
   }, [materialId, propiedades]);
   const union = UNIONES_MAQUETA.find((u) => u.id === unionId) ?? UNIONES_MAQUETA[0];
 
-  const estructura = useMemo(() => aplicarEdiciones(generarTorre(param), quitadas, agregadas), [param, quitadas, agregadas]);
+  const base = useMemo(() => generarTorre(param), [param]);
+  const estructura = useMemo(() => aplicarEdiciones(base, ed), [base, ed]);
   const { props, detalle } = useMemo(
-    () => propiedadesMaqueta(estructura, { material, union, secciones, dispersion, semilla }),
-    [estructura, material, union, secciones, dispersion, semilla],
+    () => propiedadesMaqueta(estructura, { material, union, secciones, dispersion, semilla, crucesPegados }),
+    [estructura, material, union, secciones, dispersion, semilla, crucesPegados],
   );
+  const nEdiciones = numeroEdiciones(ed);
+  /** Aplica un cambio a mano guardando el estado anterior para poder deshacerlo. */
+  const editarCon = (cambio: (e: EdicionesTorre) => EdicionesTorre) => {
+    setHistorial((h) => [...h.slice(-59), ed]);
+    setEd(cambio(ed));
+  };
+  const deshacer = () => {
+    if (!historial.length) return;
+    setEd(historial[historial.length - 1]);
+    setHistorial((h) => h.slice(0, -1));
+    setNudoSel(null);
+  };
+  const borrarEdiciones = () => {
+    setEd(SIN_EDICIONES);
+    setHistorial([]);
+    setNudoSel(null);
+    setBarraSel(null);
+  };
   const masa = useMemo(() => masaMaqueta(estructura, detalle, union), [estructura, detalle, union]);
   const sup = useMemo(() => nudosSuperiores(estructura), [estructura]);
+  const sueltos = useMemo(() => nudosSinArriostrar(estructura), [estructura]);
   const resultado = useMemo(() => {
     const cu = cargaUnitariaPlaca(estructura, { excentricidad, lateral: lateral / 100 });
     const cw = cargaPesoPropio(estructura, detalle, union);
@@ -326,19 +358,20 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
 
   // ---------- Reglas del concurso ----------
   const motivos: string[] = [];
-  if (param.altura < reglas.alturaMin) motivos.push(`altura ${param.altura} mm < ${reglas.alturaMin} mm`);
-  if (param.ladoBase > reglas.baseMax) motivos.push(`base ${param.ladoBase} mm > ${reglas.baseMax} mm`);
+  const usados = new Set(estructura.barras.flatMap((b) => (b.grupo === 'placa' ? [] : [b.a, b.b])));
+  const alturaReal = Math.max(0, ...[...usados].map((i) => estructura.nudos[i].z));
+  const apoyosBase = estructura.nudos.filter((n, i) => n.apoyo && usados.has(i));
+  const baseReal = apoyosBase.length ? Math.max(Math.max(...apoyosBase.map((n) => n.x)) - Math.min(...apoyosBase.map((n) => n.x)), Math.max(...apoyosBase.map((n) => n.y)) - Math.min(...apoyosBase.map((n) => n.y))) : 0;
+  if (alturaReal < reglas.alturaMin) motivos.push(`altura ${fmt(alturaReal, 0)} mm < ${reglas.alturaMin} mm`);
+  if (baseReal > reglas.baseMax) motivos.push(`base ${fmt(baseReal, 0)} mm > ${reglas.baseMax} mm`);
   if (reglas.masaMax > 0 && masa.total_g > reglas.masaMax) motivos.push(`masa ${fmt(masa.total_g, 1)} g > ${reglas.masaMax} g`);
   const cumple = motivos.length === 0;
 
   // ---------- Acciones ----------
   const bloqueado = cargado;
   const cambiarParam = (cambio: Partial<ParametrosTorre>) => {
-    if ((quitadas.length || agregadas.length) && !window.confirm('Cambiar la forma de la torre borra las barras que quitó o agregó a mano. ¿Continuar?')) return;
-    setQuitadas([]);
-    setAgregadas([]);
-    setNudoSel(null);
-    setBarraSel(null);
+    if (nEdiciones && !window.confirm('Cambiar la forma de la torre borra los cambios hechos a mano (nudos y barras). ¿Continuar?')) return;
+    borrarEdiciones();
     setParam((p) => ({ ...p, ...cambio }));
   };
   const cambiarMaterial = (id: string) => {
@@ -352,10 +385,17 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
     setRegistrado(false);
   };
   const clicBarra = (j: number) => {
-    if (editar && !bloqueado) {
-      const b = estructura.barras[j];
-      if (b.grupo === 'libre') setAgregadas((a) => a.filter(([x, y]) => claveBarra(x, y) !== claveBarra(b.a, b.b)));
-      else setQuitadas((q) => [...q, claveBarra(b.a, b.b)]);
+    const b = estructura.barras[j];
+    if (editar && !bloqueado && b.grupo !== 'placa' && herramienta !== 'nudo') {
+      if (herramienta === 'dividir') {
+        const r = dividirBarra(estructura, ed, j, base.nudos.length);
+        editarCon(() => r.ed);
+        setNudoSel(r.nudo);
+        setHerramienta('nudo');
+      } else {
+        const k = claveBarra(b.a, b.b);
+        editarCon((e) => (b.grupo === 'libre' ? { ...e, agregadas: e.agregadas.filter(([x, y]) => claveBarra(x, y) !== k) } : { ...e, quitadas: [...e.quitadas, k] }));
+      }
       setBarraSel(null);
       return;
     }
@@ -363,19 +403,35 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
   };
   const clicNudo = (i: number) => {
     if (!editar || bloqueado) return;
+    if (herramienta === 'nudo') {
+      setNudoSel((s) => (s === i ? null : i));
+      return;
+    }
+    if (herramienta !== 'barras') return;
     if (nudoSel === null) setNudoSel(i);
     else if (nudoSel === i) setNudoSel(null);
     else {
-      const k = claveBarra(nudoSel, i);
+      const a = nudoSel;
+      const k = claveBarra(a, i);
       const existe = estructura.barras.some((b) => claveBarra(b.a, b.b) === k);
       if (!existe) {
-        if (quitadas.includes(k)) setQuitadas((q) => q.filter((x) => x !== k));
-        else setAgregadas((a) => [...a, [nudoSel, i]]);
+        editarCon((e) => (e.quitadas.includes(k) ? { ...e, quitadas: e.quitadas.filter((x) => x !== k) } : { ...e, agregadas: [...e.agregadas, [a, i]] }));
       }
       setNudoSel(null);
     }
   };
-  const fantasmas = useMemo(() => quitadas.map((k) => k.split('-').map(Number) as [number, number]), [quitadas]);
+  const fantasmas = useMemo(() => ed.quitadas.map((k) => k.split('-').map(Number) as [number, number]), [ed.quitadas]);
+  const agregarNudo = () => {
+    const nuevo = base.nudos.length + ed.nudosNuevos.length;
+    editarCon((e) => ({ ...e, nudosNuevos: [...e.nudosNuevos, { x: 0, y: 0, z: Math.round(param.altura / 2) }] }));
+    setHerramienta('nudo');
+    setNudoSel(nuevo);
+  };
+  const moverNudo = (i: number, eje: 'x' | 'y' | 'z', v: number) => {
+    const n = estructura.nudos[i];
+    editarCon((e) => ({ ...e, movidos: { ...e.movidos, [i]: { x: n.x, y: n.y, z: n.z, [eje]: v } } }));
+  };
+  const nudoEditado = editar && herramienta === 'nudo' && nudoSel !== null ? estructura.nudos[nudoSel] : null;
 
   const registrar = () => {
     const entrada: EntradaRanking = {
@@ -422,7 +478,7 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
   };
 
   const guardarDiseno = () => {
-    const d: DisenoGuardado = { tipo: 'torre-lab-rm', version: 1, equipo, param, materialId, unionId, secciones, quitadas, agregadas, propiedades: propiedades[materialId] };
+    const d: DisenoGuardado = { tipo: 'torre-lab-rm', version: 2, equipo, param, materialId, unionId, secciones, ediciones: ed, crucesPegados, propiedades: propiedades[materialId] };
     const nombre = (equipo.trim() || 'torre').replace(/[^\w-]+/g, '-').toLowerCase();
     descargarArchivo(`${nombre}.torre.json`, JSON.stringify(d, null, 2), 'application/json');
   };
@@ -434,8 +490,9 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
       setMaterialId(MATERIALES_MAQUETA.some((m) => m.id === d.materialId) ? d.materialId : 'tallarin');
       setUnionId(UNIONES_MAQUETA.some((u) => u.id === d.unionId) ? d.unionId : 'epoxi');
       setSecciones(d.secciones);
-      setQuitadas(d.quitadas ?? []);
-      setAgregadas(d.agregadas ?? []);
+      setEd(d.ediciones ? { ...SIN_EDICIONES, ...d.ediciones } : { ...SIN_EDICIONES, quitadas: d.quitadas ?? [], agregadas: d.agregadas ?? [] });
+      setHistorial([]);
+      setCrucesPegados(!!d.crucesPegados);
       if (d.propiedades) setPropiedades((p) => ({ ...p, [d.materialId]: d.propiedades! }));
       setEquipo(d.equipo ?? '');
       setPrediccion('');
@@ -464,11 +521,11 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
     const Nj = N[jEc];
     const tit = `${barraSel !== null ? 'Barra seleccionada' : 'Barra más exigida'}: n.º ${jEc + 1} (${NOMBRE_GRUPO[estructura.barras[jEc].grupo]}, ${s.etiqueta})`;
     ecuaciones.push(
-      { nombre: `${tit} — esbeltez`, formula: 'λ = L / r,  r = √(I/A)', sustitucion: `${fmt(d.L, 1)} / √(${fmt(s.I, 3)}/${fmt(s.A, 2)})`, resultado: fmt(d.lambda, 0) },
+      { nombre: `${tit} — esbeltez`, formula: 'λ = Lp / r,  r = √(I/A)', nota: d.Lp < d.L ? `Cruce de X pegado: longitud de pandeo Lp = L/2 = ${fmt(d.Lp, 1)} mm.` : undefined, sustitucion: `${fmt(d.Lp, 1)} / √(${fmt(s.I, 3)}/${fmt(s.A, 2)})`, resultado: fmt(d.lambda, 0) },
       {
         nombre: 'Carga crítica de Euler (barra articulada, K = 1)',
-        formula: 'Pcr = π²·E·I / L²',
-        sustitucion: `π²·${fmt(material.E_MPa, 0)}·${fmt(s.I, 3)} / ${fmt(d.L, 1)}²${d.factor !== 1 ? ` × ${fmt(d.factor, 2)}` : ''}`,
+        formula: 'Pcr = π²·E·I / Lp²',
+        sustitucion: `π²·${fmt(material.E_MPa, 0)}·${fmt(s.I, 3)} / ${fmt(d.Lp, 1)}²${d.factor !== 1 ? ` × ${fmt(d.factor, 2)}` : ''}`,
         resultado: `${fmt(d.Pcr, 2)} N`,
         nota: pr.modoCompresion === 'aplastamiento' ? 'Barra corta: manda el aplastamiento (parábola de Johnson), no Euler.' : undefined,
       },
@@ -500,7 +557,14 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
     textoEstado = `La torre es un mecanismo: con nudos articulados no es estable${nl ? ` (el nudo ${nl.nudo + 1} se desplaza libremente en ${nl.eje})` : ''}. Agregue diagonales para triangular las caras.`;
   } else if (colapsada) textoEstado = `Colapsó con ${fmt(Pmax_kg, 2)} kg: ${NOMBRE_MODO[resultado.final]}.`;
   else if (cargado) textoEstado = `Soporta ${fmt(cargaKg, 2)} kg${estado.fallas.length ? ` · ${estado.fallas.length} barra(s) rota(s), la carga se redistribuyó` : ''}.`;
-  else textoEstado = editar ? 'Edición libre: clic en una barra para quitarla; clic en dos nudos para unirlos.' : 'Torre lista. Coloque discos sobre la placa.';
+  else if (editar) {
+    textoEstado =
+      herramienta === 'barras'
+        ? 'Edición libre: clic en una barra para quitarla; clic en dos nudos para unirlos con una barra nueva.'
+        : herramienta === 'dividir'
+          ? 'Dividir: clic en una barra para agregar un nudo en su punto medio.'
+          : 'Nudos: clic en un nudo para moverlo o pegarlo a la base; «Agregar nudo» crea uno nuevo.';
+  } else textoEstado = 'Torre lista. Coloque discos sobre la placa.';
 
   const pasoActual = registrado ? 5 : colapsada ? 4 : cargado ? 3 : prediccion !== '' ? 3 : 1;
   const ultimaFalla = estado.fallas.filter((ev) => ev.barra >= 0).slice(-1)[0];
@@ -514,6 +578,7 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
         </div>
         <button className="volver" onClick={onVolver}>← Volver al catálogo</button>
       </div>
+      {selectorModo}
 
       <BarraPasos pasos={['Material y unión', 'Armar la torre', 'Predecir la carga', 'Cargar hasta el colapso', 'Registrar en el ranking']} actual={pasoActual} />
 
@@ -539,7 +604,7 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
             nudoSeleccionado={nudoSel}
             onClickNudo={clicNudo}
             fantasmas={fantasmas}
-            onClickFantasma={(k) => setQuitadas((q) => q.filter((_, i) => i !== k))}
+            onClickFantasma={(k) => editarCon((e) => ({ ...e, quitadas: e.quitadas.filter((_, i) => i !== k) }))}
             numeros={numeros}
             colapso={animColapso}
           />
@@ -579,6 +644,7 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
                 ⚠ Barra {ultimaFalla.barra + 1} ({NOMBRE_GRUPO[estructura.barras[ultimaFalla.barra].grupo].toLowerCase()}): {NOMBRE_MODO[ultimaFalla.modo]} con {fmt(ultimaFalla.P / G_MM_S2, 2)} kg.
               </div>
             )}
+            {sueltos.length > 0 && !colapsada && <div className="texto-alerta">⚠ Nudo{sueltos.length > 1 ? 's' : ''} {sueltos.map((i) => i + 1).join(', ')} sin arriostrar en alguna dirección: sus barras están alineadas o en un mismo plano. Agregue barras que lo sujeten; si no, se mueve libremente o pandea.</div>}
             {!cumple && <div className="texto-alerta">⚠ No cumple las bases: {motivos.join('; ')}.</div>}
           </div>
           <EcuacionesVivo ecuaciones={ecuaciones} />
@@ -709,6 +775,15 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
             onChange={(v) => cambiarParam({ caras: v })}
             disabled={bloqueado}
           />
+          {param.caras === 'X' && (
+            <Segmentado<'si' | 'no'>
+              etiqueta="Cruces de las X pegados entre sí"
+              opciones={[{ valor: 'no', etiqueta: 'No (se cruzan sin tocarse)' }, { valor: 'si', etiqueta: 'Sí (pandean en L/2)' }]}
+              valor={crucesPegados ? 'si' : 'no'}
+              onChange={(v) => setCrucesPegados(v === 'si')}
+              disabled={bloqueado}
+            />
+          )}
           {param.planta === 'cuadrada' && (
             <div className="fila-controles">
               <Segmentado<ArriostrePlanta>
@@ -734,12 +809,49 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
           ))}
           <div className="fila" style={{ marginTop: 12, flexWrap: 'wrap', gap: 8 }}>
             <button className={editar ? 'activo' : ''} onClick={() => { setEditar((e) => !e); setNudoSel(null); }} disabled={bloqueado}>
-              {editar ? '✓ Terminar edición libre' : '✎ Edición libre (quitar o agregar barras)'}
+              {editar ? '✓ Terminar edición libre' : '✎ Edición libre (nudos y barras)'}
             </button>
-            <button onClick={() => { setQuitadas([]); setAgregadas([]); setNudoSel(null); }} disabled={bloqueado || (!quitadas.length && !agregadas.length)}>
-              Deshacer ediciones ({quitadas.length + agregadas.length})
+            <button onClick={deshacer} disabled={bloqueado || !historial.length}>↶ Deshacer</button>
+            <button onClick={() => window.confirm('¿Borrar todos los cambios hechos a mano?') && borrarEdiciones()} disabled={bloqueado || !nEdiciones}>
+              Borrar cambios ({nEdiciones})
             </button>
           </div>
+          {editar && !bloqueado && (
+            <div className="caja-edicion">
+              <Segmentado<HerramientaEdicion>
+                etiqueta="Herramienta"
+                opciones={[{ valor: 'barras', etiqueta: 'Quitar / unir barras' }, { valor: 'dividir', etiqueta: 'Dividir barra' }, { valor: 'nudo', etiqueta: 'Mover nudo' }]}
+                valor={herramienta}
+                onChange={(v) => { setHerramienta(v); setNudoSel(null); }}
+              />
+              <div className="fila" style={{ flexWrap: 'wrap', gap: 8, margin: '8px 0' }}>
+                <button onClick={agregarNudo}>＋ Agregar nudo</button>
+              </div>
+              {nudoEditado && nudoSel !== null ? (
+                <>
+                  <div className="fila-controles">
+                    <Stepper etiqueta={`Nudo ${nudoSel + 1}: x (mm)`} valor={nudoEditado.x} onChange={(v) => moverNudo(nudoSel, 'x', v)} min={-600} max={600} paso={5} decimales={1} />
+                    <Stepper etiqueta="y (mm)" valor={nudoEditado.y} onChange={(v) => moverNudo(nudoSel, 'y', v)} min={-600} max={600} paso={5} decimales={1} />
+                    <Stepper etiqueta="z, altura (mm)" valor={nudoEditado.z} onChange={(v) => moverNudo(nudoSel, 'z', v)} min={0} max={1500} paso={5} decimales={1} />
+                  </div>
+                  <Segmentado<'si' | 'no'>
+                    etiqueta="Pegado a la base (apoyo)"
+                    opciones={[{ valor: 'si', etiqueta: 'Sí' }, { valor: 'no', etiqueta: 'No' }]}
+                    valor={nudoEditado.apoyo ? 'si' : 'no'}
+                    onChange={(v) => editarCon((e) => ({ ...e, apoyos: { ...e.apoyos, [nudoSel]: v === 'si' } }))}
+                  />
+                </>
+              ) : (
+                <p className="nota">
+                  {herramienta === 'nudo'
+                    ? 'Haga clic en un nudo de la vista para moverlo, o agregue uno nuevo y únalo con barras (herramienta «Quitar / unir barras»).'
+                    : herramienta === 'dividir'
+                      ? 'Dividir una pata o una diagonal larga en dos tramos acorta su longitud de pandeo, pero el nudo nuevo debe quedar arriostrado con otras barras: si no, la torre es un mecanismo.'
+                      : 'Las barras quitadas quedan punteadas: haga clic en ellas para devolverlas. Las barras nuevas se ven en celeste.'}
+                </p>
+              )}
+            </div>
+          )}
           <p className="nota">
             {estructura.nudos.length} nudos · {estructura.barras.filter((b) => b.grupo !== 'placa').length} barras · masa: barras {fmt(masa.barras_g, 1)} g +
             pegamento {fmt(masa.pegamento_g, 1)} g. Los nudos se consideran articulados (un nudo pegado transmite fuerza axial, casi nada
@@ -915,4 +1027,19 @@ export function StructuresBench({ onVolver }: { onVolver: () => void }) {
       </div>
     </div>
   );
+}
+
+/** Banco 10: torres en 3D para el concurso, o armaduras planas tipo puente para la clase. */
+export function StructuresBench({ onVolver }: { onVolver: () => void }) {
+  const [modo, setModo] = useState<'torre' | 'plana'>('torre');
+  const selector = (
+    <div className="selector-modo">
+      <Segmentado<'torre' | 'plana'>
+        opciones={[{ valor: 'torre', etiqueta: 'Torre 3D (concurso)' }, { valor: 'plana', etiqueta: 'Armadura plana 2D (puentes)' }]}
+        valor={modo}
+        onChange={setModo}
+      />
+    </div>
+  );
+  return modo === 'torre' ? <TorreBench onVolver={onVolver} selectorModo={selector} /> : <ArmaduraPlanaBench onVolver={onVolver} selectorModo={selector} />;
 }

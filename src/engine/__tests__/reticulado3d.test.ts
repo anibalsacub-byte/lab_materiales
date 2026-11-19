@@ -6,6 +6,7 @@ import {
   esMecanismo,
   estadoEnCarga,
   fuerzasAxiales,
+  nudosSinArriostrar,
   pandeoGlobal,
   type Estructura,
   type PropiedadBarra,
@@ -16,7 +17,9 @@ import {
   aplicarEdiciones,
   cargaPesoPropio,
   cargaUnitariaPlaca,
+  dividirBarra,
   generarTorre,
+  SIN_EDICIONES,
   masaMaqueta,
   propiedadesMaqueta,
   seccionHaz,
@@ -214,9 +217,33 @@ describe('Torres de maqueta', () => {
   it('las ediciones libres quitan y agregan barras', () => {
     const p: ParametrosTorre = { planta: 'triangular', ladoBase: 200, ladoSuperior: 200, altura: 300, niveles: 3, caras: 'diagonal', arriostrePlanta: 'ninguno', plantaCada: 1 };
     const base = generarTorre(p);
-    const editada = aplicarEdiciones(base, ['0-3'], [[0, 7]]);
+    const editada = aplicarEdiciones(base, { ...SIN_EDICIONES, quitadas: ['0-3'], agregadas: [[0, 7]] });
     expect(editada.barras.length).toBe(base.barras.length);
     expect(editada.barras.some((b) => b.grupo === 'libre')).toBe(true);
+  });
+
+  it('dividir una barra agrega un nudo en su punto medio y dos tramos', () => {
+    const p: ParametrosTorre = { planta: 'cuadrada', ladoBase: 200, ladoSuperior: 200, altura: 300, niveles: 3, caras: 'X', arriostrePlanta: 'X', plantaCada: 1 };
+    const base = generarTorre(p);
+    const j = base.barras.findIndex((b) => b.grupo === 'pata');
+    const { ed, nudo } = dividirBarra(base, SIN_EDICIONES, j, base.nudos.length);
+    const e = aplicarEdiciones(base, ed);
+    expect(nudo).toBe(base.nudos.length);
+    expect(e.nudos.length).toBe(base.nudos.length + 1);
+    expect(e.barras.length).toBe(base.barras.length + 1);
+    expect(e.nudos[nudo].z).toBeCloseTo(50, 6);
+    expect(nudosSinArriostrar(base)).toEqual([]);
+    expect(nudosSinArriostrar(e)).toEqual([nudo]);
+  });
+
+  it('cruces de X pegados: la diagonal pandea en la mitad de su largo (Pcr × 4)', () => {
+    const p: ParametrosTorre = { planta: 'cuadrada', ladoBase: 200, ladoSuperior: 200, altura: 400, niveles: 2, caras: 'X', arriostrePlanta: 'X', plantaCada: 1 };
+    const e = generarTorre(p);
+    const j = e.barras.findIndex((b) => b.cruce);
+    const sin = propiedadesMaqueta(e, configTallarin()).detalle[j];
+    const con = propiedadesMaqueta(e, { ...configTallarin(), crucesPegados: true }).detalle[j];
+    expect(con.Lp).toBeCloseTo(sin.L / 2, 6);
+    expect(con.Pcr).toBeCloseTo(4 * sin.Pcr, 6);
   });
 
   it('la dispersión es reproducible con la misma semilla', () => {

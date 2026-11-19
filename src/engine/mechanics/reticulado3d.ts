@@ -16,6 +16,13 @@ export interface Nudo {
   z: number;
   /** Nudo pegado a la base: los tres desplazamientos están impedidos. */
   apoyo?: boolean;
+  /** Restricción por dirección [x, y, z]; si existe, reemplaza a «apoyo» (rodillos, armaduras planas). */
+  fijo?: [boolean, boolean, boolean];
+}
+
+/** Indica si el desplazamiento del nudo en el eje k (0 = x, 1 = y, 2 = z) está impedido. */
+export function restringido(n: Nudo, k: number): boolean {
+  return n.fijo ? n.fijo[k] : !!n.apoyo;
 }
 
 export type GrupoBarra = 'pata' | 'anillo' | 'diagonal' | 'planta' | 'placa' | 'libre';
@@ -24,6 +31,10 @@ export interface Barra {
   a: number;
   b: number;
   grupo: GrupoBarra;
+  /** Diagonal de una cruz en X (si los cruces van pegados, pandea en la mitad de su largo). */
+  cruce?: boolean;
+  /** Sección propia (id), en lugar de la de su grupo. */
+  seccion?: string;
 }
 
 export interface Estructura {
@@ -80,8 +91,7 @@ export function ensamblar(e: Estructura, props: PropiedadBarra[], activas: boole
   const mapa = new Int32Array(3 * nN).fill(-1);
   let n = 0;
   for (let i = 0; i < nN; i++) {
-    if (e.nudos[i].apoyo) continue;
-    for (let k = 0; k < 3; k++) mapa[3 * i + k] = n++;
+    for (let k = 0; k < 3; k++) if (!restringido(e.nudos[i], k)) mapa[3 * i + k] = n++;
   }
   const K = new Float64Array(n * n);
   for (let j = 0; j < e.barras.length; j++) {
@@ -160,6 +170,60 @@ export function fuerzasAxiales(e: Estructura, props: PropiedadBarra[], activas: 
     N[j] = (props[j].EA / L) * alargamiento;
   }
   return N;
+}
+
+/**
+ * Nudos que sus barras no sujetan en alguna dirección: por ejemplo, el punto medio de una barra
+ * dividida al que solo llegan los dos tramos alineados. Con nudos articulados, ese nudo se mueve
+ * libremente en la dirección que nadie sujeta (o pandea si las barras están comprimidas).
+ * Se arma M = Σ e·eᵀ con las direcciones de las barras (más los ejes impedidos por apoyos) y se
+ * mira si M es singular.
+ */
+export function nudosSinArriostrar(e: Estructura, activas?: boolean[]): number[] {
+  const M = e.nudos.map(() => [0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  const grado = e.nudos.map(() => 0);
+  e.barras.forEach((b, j) => {
+    if (activas && !activas[j]) return;
+    const [cx, cy, cz] = cosenos(e, j);
+    const c = [cx, cy, cz];
+    for (const i of [b.a, b.b]) {
+      grado[i]++;
+      for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) M[i][3 * r + s] += c[r] * c[s];
+    }
+  });
+  const sueltos: number[] = [];
+  e.nudos.forEach((n, i) => {
+    if (grado[i] === 0) return;
+    const m = M[i];
+    for (let k = 0; k < 3; k++) if (restringido(n, k)) m[4 * k] += 1;
+    const det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
+    const traza = m[0] + m[4] + m[8];
+    if (det < 1e-6 * (traza / 3) ** 3) sueltos.push(i);
+  });
+  return sueltos;
+}
+
+/**
+ * Reacciones en los apoyos (vector 3·nNudos; cero en las direcciones libres): equilibrio de cada
+ * nudo, R = −F − Σ(fuerzas de las barras sobre el nudo).
+ */
+export function reacciones(e: Estructura, activas: boolean[], N: Float64Array, cargas: Float64Array): Float64Array {
+  const suma = new Float64Array(3 * e.nudos.length);
+  for (let j = 0; j < e.barras.length; j++) {
+    if (!activas[j]) continue;
+    const [cx, cy, cz] = cosenos(e, j);
+    const { a, b } = e.barras[j];
+    const c = [cx, cy, cz];
+    for (let k = 0; k < 3; k++) {
+      suma[3 * a + k] += N[j] * c[k];
+      suma[3 * b + k] -= N[j] * c[k];
+    }
+  }
+  const R = new Float64Array(3 * e.nudos.length);
+  e.nudos.forEach((n, i) => {
+    for (let k = 0; k < 3; k++) if (restringido(n, k)) R[3 * i + k] = -cargas[3 * i + k] - suma[3 * i + k];
+  });
+  return R;
 }
 
 /**

@@ -358,3 +358,7 @@ body.modo-lab, body.modo-lab #root { background: #0a1219; }
 .lab .fila > button.activo { border-color: var(--lab-cian); color: var(--lab-cian); }
 .btn-mini { padding: 0 7px; font-size: 13px; line-height: 20px; }
 .campo label { display: block; font-size: 12px; color: var(--color-text-muted); margin-bottom: 4px; }
+.caja-edicion { margin-top: 10px; padding: 10px 12px; border: 1px dashed #2f4a63; border-radius: 10px; background: #0f1c29; }
+.selector-modo { margin: -4px 0 12px; }
+.tabla-matriz td, .tabla-matriz th { font-size: 11px; padding: 3px 5px; white-space: nowrap; }
+.tabla-matriz tbody th { text-align: center; }
